@@ -16725,6 +16725,14 @@ function error(message, properties = {}) {
 	issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
+* Adds a warning issue
+* @param message warning issue message. Errors will be converted to string via toString()
+* @param properties optional properties to add to the annotation.
+*/
+function warning(message, properties = {}) {
+	issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
 * Writes info to log with console.log.
 * @param message info message
 */
@@ -16805,6 +16813,10 @@ const parseModeWhenClean = (env, issues) => {
 	issues.push(`\`mode-when-clean\` must be \`publish\` or \`none\`, got \`${raw}\``);
 	return "publish";
 };
+const detectTokenMismatch = (env, githubToken) => {
+	if (env.GITHUB_TOKEN !== void 0 && env.GITHUB_TOKEN !== "" && env.GITHUB_TOKEN !== githubToken) return "the `GITHUB_TOKEN` environment variable is set but differs from the `github-token` input: this action only uses the input";
+	return null;
+};
 const parseInputs = (env) => {
 	const issues = detectLegacyInputs(env);
 	const gitUser = parseGitUser(env, issues);
@@ -16821,7 +16833,6 @@ const parseInputs = (env) => {
 	const allowPrereleaseOnLatest = parseBoolean(env, "allow-prerelease-on-latest", false, issues);
 	const githubToken = rawInput(env, "github-token");
 	if (githubToken === "") issues.push("`github-token` is required");
-	else if (env.GITHUB_TOKEN !== void 0 && env.GITHUB_TOKEN !== "" && env.GITHUB_TOKEN !== githubToken) issues.push("the `GITHUB_TOKEN` environment variable and the `github-token` input disagree: remove one of them");
 	if (issues.length > 0) throw new InputError(issues);
 	return {
 		build: rawInput(env, "build") || null,
@@ -16894,7 +16905,10 @@ const assertPnpmVersion = async (cwd) => {
 //#region src/index.ts
 const run = async () => {
 	try {
-		info(`Using pnpm ${await assertPnpmVersion(parseInputs(process.env).cwd)}`);
+		const inputs = parseInputs(process.env);
+		const tokenWarning = detectTokenMismatch(process.env, inputs.githubToken);
+		if (tokenWarning !== null) warning(tokenWarning);
+		info(`Using pnpm ${await assertPnpmVersion(inputs.cwd)}`);
 		setFailed("pnpm-release-action is not functional yet: release-plan detection lands in a following PR.");
 	} catch (error) {
 		if (error instanceof InputError || error instanceof PreflightError) {

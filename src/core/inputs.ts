@@ -116,6 +116,23 @@ const parseModeWhenClean = (env: Env, issues: string[]): ModeWhenClean => {
   return 'publish';
 };
 
+// hard error にすると「昇格トークンを github-token に渡し、他ステップの gh CLI 用に
+// GITHUB_TOKEN env はデフォルトのまま」という正当な構成（本アクションの推奨レシピ）を
+// 弾いてしまうため、不一致は warning 止まりにする
+export const detectTokenMismatch = (
+  env: Env,
+  githubToken: string,
+): string | null => {
+  if (
+    env.GITHUB_TOKEN !== undefined &&
+    env.GITHUB_TOKEN !== '' &&
+    env.GITHUB_TOKEN !== githubToken
+  ) {
+    return 'the `GITHUB_TOKEN` environment variable is set but differs from the `github-token` input: this action only uses the input';
+  }
+  return null;
+};
+
 export const parseInputs = (env: Env): Inputs => {
   const issues: string[] = detectLegacyInputs(env);
 
@@ -164,14 +181,6 @@ export const parseInputs = (env: Env): Inputs => {
   const githubToken = rawInput(env, 'github-token');
   if (githubToken === '') {
     issues.push('`github-token` is required');
-  } else if (
-    env.GITHUB_TOKEN !== undefined &&
-    env.GITHUB_TOKEN !== '' &&
-    env.GITHUB_TOKEN !== githubToken
-  ) {
-    issues.push(
-      'the `GITHUB_TOKEN` environment variable and the `github-token` input disagree: remove one of them',
-    );
   }
 
   if (issues.length > 0) throw new InputError(issues);

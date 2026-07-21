@@ -1,4 +1,8 @@
-import { InputError, parseInputs } from '../src/core/inputs.ts';
+import {
+  InputError,
+  detectTokenMismatch,
+  parseInputs,
+} from '../src/core/inputs.ts';
 
 const env = (
   overrides: Record<string, string> = {},
@@ -110,6 +114,22 @@ describe('explicit values', () => {
   });
 });
 
+describe('detectTokenMismatch', () => {
+  test('warns when GITHUB_TOKEN differs from the input', () => {
+    expect(
+      detectTokenMismatch({ GITHUB_TOKEN: 'ghs_other' }, 'ghs_dummy'),
+    ).toMatch(/only uses the input/u);
+  });
+
+  test('stays silent when GITHUB_TOKEN matches, is empty, or is unset', () => {
+    expect(
+      detectTokenMismatch({ GITHUB_TOKEN: 'ghs_dummy' }, 'ghs_dummy'),
+    ).toBeNull();
+    expect(detectTokenMismatch({ GITHUB_TOKEN: '' }, 'ghs_dummy')).toBeNull();
+    expect(detectTokenMismatch({}, 'ghs_dummy')).toBeNull();
+  });
+});
+
 describe('validation errors', () => {
   test('rejects an unknown setup-git-user value', () => {
     expect(() => parseInputs(env({ 'INPUT_SETUP-GIT-USER': 'bot' }))).toThrow(
@@ -156,12 +176,6 @@ describe('validation errors', () => {
   test('requires a resolvable base branch', () => {
     expect(() => parseInputs({ 'INPUT_GITHUB-TOKEN': 'ghs_dummy' })).toThrow(
       /base-branch/u,
-    );
-  });
-
-  test('rejects a GITHUB_TOKEN env variable that disagrees with the input', () => {
-    expect(() => parseInputs(env({ GITHUB_TOKEN: 'ghs_other' }))).toThrow(
-      /disagree/u,
     );
   });
 
