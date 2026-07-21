@@ -21,11 +21,12 @@ export default defineConfig({
     ],
   },
   pack: {
+    // GitHub Actions のランタイムには node_modules が無いため、依存ごと単一ファイルに束ねる
     entry: ['src/index.ts'],
     format: 'esm',
-    dts: true,
+    dts: false,
     outDir: 'dist',
-    unbundle: true,
+    unbundle: false,
   },
   test: {
     globals: true,

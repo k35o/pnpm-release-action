@@ -1,12 +1,10 @@
-# @k8o/pnpm-release-action
+# pnpm-release-action
 
-CI layer for pnpm built-in versioning: release PRs, tags, and GitHub Releases
+GitHub Action for [pnpm's built-in release management](https://pnpm.io/versioning): opens a release PR from pending change intents, then publishes to npm, pushes tags, and creates GitHub Releases when the PR merges.
 
-## Install
+pnpm 11.13+ owns the hard parts — change intents (`pnpm change`), the release plan (`pnpm version -r`), the ledger, changelogs, and publish selection. This action owns the layer pnpm deliberately leaves to CI: git commits, branches, pull requests, tags, and GitHub Releases.
 
-```sh
-pnpm add @k8o/pnpm-release-action
-```
+> **Status: pre-release.** Under active development; nothing is published yet.
 
 ## Develop
 
@@ -20,10 +18,8 @@ pnpm build     # vp pack -> dist/
 
 ## Release
 
-Versioned and published with [Changesets](https://github.com/changesets/changesets).
+This repository is versioned with pnpm's built-in release management and — once bootstrapped — releases itself with this very action.
 
 ```sh
-pnpm changeset   # describe the change
+pnpm change   # record a change intent
 ```
-
-Merging to `main` lets the release workflow open a version PR and publish to npm.

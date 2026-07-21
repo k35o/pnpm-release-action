@@ -8,20 +8,12 @@
   "prConcurrentLimit": 10,
   "packageRules": [
     {
-      "matchPackageNames": ["/^@changesets/"],
-      "groupName": "changesets dependencies"
-    },
-    {
       "matchPackageNames": ["/^pnpm$/"],
       "groupName": "pnpm dependencies"
     },
     {
       "matchPackageNames": ["/^node$/"],
       "groupName": "node dependencies"
-    },
-    {
-      "matchPackageNames": ["changesets/action"],
-      "enabled": false
     }
   ]
 }

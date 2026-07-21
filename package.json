@@ -1,6 +1,7 @@
 {
-  "name": "@k8o/pnpm-release-action",
+  "name": "pnpm-release-action",
   "version": "0.0.0",
+  "private": true,
   "description": "CI layer for pnpm built-in versioning: release PRs, tags, and GitHub Releases",
   "keywords": [],
   "homepage": "https://github.com/k35o/pnpm-release-action#readme",
@@ -11,27 +12,7 @@
     "type": "git",
     "url": "git+https://github.com/k35o/pnpm-release-action.git"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
-  ],
   "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
-      }
-    },
-    "./package.json": "./package.json"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "scripts": {
     "build": "vp pack",
     "test": "vp test",
@@ -40,14 +21,9 @@
     "check": "vp check",
     "check:write": "vp check --fix",
     "typecheck": "tsc --noEmit",
-    "changeset": "changeset",
-    "version": "changeset version",
-    "release": "pnpm build && changeset publish",
-    "prepublishOnly": "pnpm build"
+    "prepare": "vp config"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "0.7.0",
-    "@changesets/cli": "2.31.0",
     "@k8o/oxc-config": "0.1.3",
     "@types/node": "24.12.4",
     "typescript": "6.0.3",
@@ -56,5 +32,5 @@
   "engines": {
     "node": ">=24.13.0"
   },
-  "packageManager": "pnpm@11.5.1"
+  "packageManager": "pnpm@11.15.1"
 }

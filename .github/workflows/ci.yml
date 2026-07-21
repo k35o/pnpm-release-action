@@ -45,11 +45,11 @@ jobs:
       - name: Run tests
         run: pnpm test
 
-  changeset:
-    name: Changeset
-    # Dependency bumps (Renovate) and the release PR carry no changeset by design;
+  change-intent:
+    name: Change intent
+    # Dependency bumps (Renovate) and the release PR carry no change intent by design;
     # skipping the job is treated as success by branch protection.
-    if: github.actor != 'renovate[bot]' && github.head_ref != 'changeset-release/main'
+    if: github.actor != 'renovate[bot]' && github.head_ref != 'pnpm-release/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -59,8 +59,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install
-        uses: ./.github/composite-actions/install
-
-      - name: Verify a changeset is present
-        run: pnpm exec changeset status --since=origin/main
+      - name: Verify a change intent is present
+        run: |
+          git diff --name-only "origin/${GITHUB_BASE_REF}"...HEAD \
+            | grep -E '^\.changeset/[^/]+\.md$' \
+            | grep -v '^\.changeset/README\.md$'
