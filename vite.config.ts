@@ -4,11 +4,11 @@ import { defineConfig } from 'vite-plus';
 export default defineConfig({
   fmt: {
     ...fmt,
-    ignorePatterns: ['CHANGELOG.md'],
+    ignorePatterns: ['CHANGELOG.md', 'dist'],
   },
   lint: {
     extends: [typescript],
-    ignorePatterns: ['CHANGELOG.md'],
+    ignorePatterns: ['CHANGELOG.md', 'dist'],
     options: {
       typeAware: true,
     },
