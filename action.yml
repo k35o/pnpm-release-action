@@ -1,0 +1,92 @@
+name: pnpm Release
+description: >-
+  Release automation for pnpm's built-in versioning: opens a release PR from
+  pending change intents, then publishes to npm, pushes tags, and creates
+  GitHub Releases when it merges.
+author: k8o
+branding:
+  icon: package
+  color: orange
+
+inputs:
+  build:
+    description: >-
+      Command to run before the built-in `pnpm publish -r` in publish mode
+      (e.g. `pnpm build`). Skipped when empty. Not run in version-PR mode.
+    required: false
+  commit-message:
+    description: Commit message for the version commit.
+    required: false
+    default: 'chore: prepare release'
+  pr-title:
+    description: Title of the release pull request.
+    required: false
+    default: 'chore: prepare release'
+  base-branch:
+    description: >-
+      Base branch the release PR targets. Defaults to the branch that
+      triggered the workflow; on non-branch triggers (tags, pull_request)
+      it must be set explicitly.
+    required: false
+  branch-prefix:
+    description: Prefix of the release branch (`<branch-prefix><base-branch>`).
+    required: false
+    default: pnpm-release/
+  cwd:
+    description: Working directory of the pnpm workspace.
+    required: false
+  setup-git-user:
+    description: >-
+      Git identity for the version commit: `true` (github-actions bot),
+      `false` (keep the ambient git config), or `app` (resolve the GitHub App
+      bot user from `app-slug`).
+    required: false
+    default: 'true'
+  app-slug:
+    description: >-
+      App slug output of actions/create-github-app-token. Required when
+      `setup-git-user` is `app`.
+    required: false
+  create-github-releases:
+    description: Create a GitHub Release per released package.
+    required: false
+    default: 'true'
+  push-git-tags:
+    description: >-
+      Push git tags for released packages. Cannot be `false` while
+      `create-github-releases` is `true`.
+    required: false
+    default: 'true'
+  mode-when-clean:
+    description: >-
+      What to do when no change intents are pending: `publish` or `none`.
+    required: false
+    default: publish
+  sync-lockfile:
+    description: Run `pnpm install --lockfile-only` after versioning.
+    required: false
+    default: 'true'
+  allow-prerelease-on-latest:
+    description: Allow publishing a prerelease version to the `latest` dist-tag.
+    required: false
+    default: 'false'
+  github-token:
+    description: Token used for the release PR, tags, and GitHub Releases.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  mode:
+    description: 'What the run did: `version`, `publish`, or `none`.'
+  published:
+    description: '`"true"` when at least one package was published.'
+  published-packages:
+    description: JSON array of `{ name, version }` for published packages.
+  has-pending-changes:
+    description: '`"true"` when the release plan was non-empty.'
+  pr-number:
+    description: Number of the release pull request, when one was created or updated.
+
+runs:
+  using: node24
+  main: dist/index.mjs

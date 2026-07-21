@@ -24,6 +24,8 @@
     "prepare": "vp config"
   },
   "devDependencies": {
+    "@actions/core": "3.0.1",
+    "@actions/exec": "3.0.0",
     "@k8o/oxc-config": "0.1.3",
     "@types/node": "24.12.4",
     "typescript": "6.0.3",
