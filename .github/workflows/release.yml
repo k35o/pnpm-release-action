@@ -35,14 +35,13 @@ jobs:
 
       # このリポジトリ自身が最初のユーザー: 推奨レシピそのものを毎リリースで実地検証する
       # commit-mode: github-api (デフォルト) が App 署名のコミットを作るため
-      # setup-git-user は不要になり、auto-merge で release PR は人手ゼロで流れる
+      # setup-git-user は不要になる
       - name: Release
         id: release
         uses: ./
         with:
           build: pnpm build
           github-token: ${{ steps.app-token.outputs.token }}
-          auto-merge: true
 
       # v<version> タグが HEAD を指しているとき（= このランで publish された）だけ
       # フローティングメジャータグを追従させる。Release は付けず、immutable releases
