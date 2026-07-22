@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { type PlanEntry, parsePlanOutput } from '../core/plan.ts';
+import { parsePlanOutput } from '../core/plan.ts';
+import type { PlanEntry } from '../core/plan.ts';
 import { runCommand } from '../proc.ts';
 
 const runVersion = async (

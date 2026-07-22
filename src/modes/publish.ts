@@ -3,12 +3,13 @@ import { readFile } from 'node:fs/promises';
 import * as core from '@actions/core';
 
 import type { Inputs } from '../core/inputs.ts';
-import { type LedgerEntry, diffLedger, parseLedger } from '../core/ledger.ts';
+import { diffLedger, parseLedger } from '../core/ledger.ts';
+import type { LedgerEntry } from '../core/ledger.ts';
 import {
-  type ReleaseTarget,
   buildReleaseTargets,
   findPrereleaseLeaks,
 } from '../core/publish-plan.ts';
+import type { ReleaseTarget } from '../core/publish-plan.ts';
 import type { GhClient } from '../gh/pr.ts';
 import {
   commitExists,
@@ -151,8 +152,10 @@ const appendStepSummary = async (
       ...published.map((pkg) => `| \`${pkg.name}\` | ${pkg.version} |`),
     );
   }
-  lines.push('', '### Tags / Releases', '');
   lines.push(
+    '',
+    '### Tags / Releases',
+    '',
     targets.length === 0
       ? '_None._'
       : targets.map((target) => `- \`${target.tag}\``).join('\n'),
