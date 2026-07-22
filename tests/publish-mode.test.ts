@@ -159,6 +159,27 @@ test('a prerelease outside the released set warns instead of blocking', async ()
   ).resolves.toBeUndefined();
 });
 
+test('an unreachable push base aborts instead of silently using HEAD^', async () => {
+  const dir = await releasedFixture();
+  const { client } = makeFakeClient();
+  const eventPath = join(
+    await mkdtemp(join(tmpdir(), 'pra-event-')),
+    'event.json',
+  );
+  // ローカルに存在しない before SHA を持つ push イベントを偽装する
+  await writeFile(eventPath, JSON.stringify({ before: 'a'.repeat(40) }));
+  process.env.GITHUB_EVENT_NAME = 'push';
+  process.env.GITHUB_EVENT_PATH = eventPath;
+  try {
+    await expect(
+      runPublishMode(makeInputs(dir), client, dryRunPublish),
+    ).rejects.toThrow(/fetch-depth/u);
+  } finally {
+    delete process.env.GITHUB_EVENT_NAME;
+    delete process.env.GITHUB_EVENT_PATH;
+  }
+});
+
 test('push-git-tags: false skips tagging entirely', async () => {
   const dir = await releasedFixture();
   const { client, releases } = makeFakeClient();

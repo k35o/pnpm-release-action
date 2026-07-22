@@ -28826,13 +28826,16 @@ const pushBaseSha = async (cwd) => {
 	if (process.env.GITHUB_EVENT_NAME !== "push") return null;
 	const eventPath = process.env.GITHUB_EVENT_PATH;
 	if (eventPath === void 0) return null;
+	let before;
 	try {
-		const { before } = JSON.parse(await readFile(eventPath, "utf8"));
-		if (typeof before !== "string" || !/^[0-9a-f]{40}$/u.test(before) || /^0{40}$/u.test(before)) return null;
-		return await commitExists(cwd, before) ? before : null;
+		const event = JSON.parse(await readFile(eventPath, "utf8"));
+		if (typeof event.before !== "string" || !/^[0-9a-f]{40}$/u.test(event.before) || /^0{40}$/u.test(event.before)) return null;
+		({before} = event);
 	} catch {
 		return null;
 	}
+	if (!await commitExists(cwd, before)) throw new Error(`the push base commit ${before} is not available locally: check out with \`fetch-depth: 0\` so the released set can be computed`);
+	return before;
 };
 const releasedByLedger = async (cwd) => {
 	const ledgerPath = `${(await showPrefix(cwd)).trim()}.changeset/ledger.yaml`;
@@ -28851,7 +28854,7 @@ const guardPrereleases = (packages, released, allow) => {
 	const releasedKeys = new Set(released.map((entry) => `${entry.name}@${entry.version}`));
 	const inRelease = leaks.filter((pkg) => pkg.version !== null && releasedKeys.has(`${pkg.name}@${pkg.version}`));
 	const outside = leaks.filter((pkg) => !inRelease.includes(pkg));
-	if (inRelease.length > 0 && !allow) throw new Error(`prerelease versions would be published to the \`latest\` dist-tag: ${inRelease.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — publish prereleases with an explicit dist-tag, or set \`allow-prerelease-on-latest: true\``);
+	if (inRelease.length > 0 && !allow) throw new Error(`prerelease versions are in this release and would land on the \`latest\` dist-tag: ${inRelease.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — set \`allow-prerelease-on-latest: true\` to proceed (dist-tag selection is not supported yet)`);
 	if (outside.length > 0) warning(`prerelease versions exist in the workspace but are not part of this release: ${outside.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — publish skips them if they are already on the registry, but check them if this is unexpected`);
 };
 const appendStepSummary = async (published, targets) => {

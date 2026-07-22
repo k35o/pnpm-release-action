@@ -41,23 +41,31 @@ const pushBaseSha = async (cwd: string): Promise<string | null> => {
   if (process.env.GITHUB_EVENT_NAME !== 'push') return null;
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (eventPath === undefined) return null;
+  let before: string;
   try {
     const event = JSON.parse(await readFile(eventPath, 'utf8')) as {
       before?: unknown;
     };
-    const { before } = event;
     if (
-      typeof before !== 'string' ||
-      !/^[0-9a-f]{40}$/u.test(before) ||
-      /^0{40}$/u.test(before)
+      typeof event.before !== 'string' ||
+      !/^[0-9a-f]{40}$/u.test(event.before) ||
+      /^0{40}$/u.test(event.before)
     ) {
+      // ブランチ新規作成の push などは before が zero SHA — first-parent に任せる
       return null;
     }
-    // ブランチ新規作成の push などではローカルに存在しない
-    return (await commitExists(cwd, before)) ? before : null;
+    ({ before } = event as { before: string });
   } catch {
     return null;
   }
+  // before が取れているのに解決できないときに HEAD^ へ黙って落とすと、
+  // multi-commit 直 push の取りこぼしが静かに再発するため名指しで止める
+  if (!(await commitExists(cwd, before))) {
+    throw new Error(
+      `the push base commit ${before} is not available locally: check out with \`fetch-depth: 0\` so the released set can be computed`,
+    );
+  }
+  return before;
 };
 
 // このリリースで増えた ledger エントリ = タグ/Release の対象（private 含む）
@@ -110,11 +118,11 @@ const guardPrereleases = (
   const outside = leaks.filter((pkg) => !inRelease.includes(pkg));
   if (inRelease.length > 0 && !allow) {
     throw new Error(
-      `prerelease versions would be published to the \`latest\` dist-tag: ${inRelease
+      `prerelease versions are in this release and would land on the \`latest\` dist-tag: ${inRelease
         .map((pkg) => `${pkg.name}@${String(pkg.version)}`)
         .join(
           ', ',
-        )} — publish prereleases with an explicit dist-tag, or set \`allow-prerelease-on-latest: true\``,
+        )} — set \`allow-prerelease-on-latest: true\` to proceed (dist-tag selection is not supported yet)`,
     );
   }
   if (outside.length > 0) {
