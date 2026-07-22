@@ -129,6 +129,21 @@ const parseCommitMode = (env: Env, issues: string[]): CommitMode => {
   return 'github-api';
 };
 
+// github-api モードでは setup-git-user/app-slug は使われない。設定されたまま残って
+// いる（移行の名残・typo 含む）場合に黙殺せず、無視される旨を warning で知らせる
+export const detectIgnoredGitUserInputs = (
+  env: Env,
+  commitMode: CommitMode,
+): string | null => {
+  if (commitMode !== 'github-api') return null;
+  const setupGitUser = rawInput(env, 'setup-git-user');
+  const appSlug = rawInput(env, 'app-slug');
+  if ((setupGitUser === '' || setupGitUser === 'true') && appSlug === '') {
+    return null;
+  }
+  return '`setup-git-user` and `app-slug` are ignored with `commit-mode: github-api`: the commit identity comes from the token (remove them, or set `commit-mode: git-cli`)';
+};
+
 // hard error にすると「昇格トークンを github-token に渡し、他ステップの gh CLI 用に
 // GITHUB_TOKEN env はデフォルトのまま」という正当な構成（本アクションの推奨レシピ）を
 // 弾いてしまうため、不一致は warning 止まりにする

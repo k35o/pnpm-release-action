@@ -1,5 +1,6 @@
 import {
   InputError,
+  detectIgnoredGitUserInputs,
   detectTokenMismatch,
   parseInputs,
 } from '../src/core/inputs.ts';
@@ -126,6 +127,39 @@ describe('explicit values', () => {
   test('a matching GITHUB_TOKEN env variable is accepted', () => {
     const inputs = parseInputs(env({ GITHUB_TOKEN: 'ghs_dummy' }));
     expect(inputs.githubToken).toBe('ghs_dummy');
+  });
+});
+
+describe('detectIgnoredGitUserInputs', () => {
+  test('warns when git-user inputs linger in github-api mode', () => {
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'app', 'INPUT_APP-SLUG': 'k35o-bot' }),
+        'github-api',
+      ),
+    ).toMatch(/ignored/u);
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'bot' }),
+        'github-api',
+      ),
+    ).toMatch(/ignored/u);
+  });
+
+  test('stays silent for defaults and for git-cli mode', () => {
+    expect(detectIgnoredGitUserInputs(env(), 'github-api')).toBeNull();
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'true' }),
+        'github-api',
+      ),
+    ).toBeNull();
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'app', 'INPUT_APP-SLUG': 'k35o-bot' }),
+        'git-cli',
+      ),
+    ).toBeNull();
   });
 });
 

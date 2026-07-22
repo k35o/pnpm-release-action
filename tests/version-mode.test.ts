@@ -187,6 +187,26 @@ test('github-api mode commits via the API with signed-commit file changes', asyn
   expect(await sh(dir, 'git', ['status', '--porcelain'])).toBe('');
 });
 
+test('github-api mode sends root-relative paths for subdirectory workspaces', async () => {
+  const dir = await initFixtureWorkspace({
+    storage: 'repository',
+    subdir: 'workspace',
+  });
+  await addOrigin(dir);
+  const { client, calls } = makeFakeClient(null);
+
+  await runVersionMode(
+    { ...makeInputs(dir), commitMode: 'github-api' },
+    client,
+  );
+
+  const additionPaths = calls.commits[0]?.additions.map((entry) => entry.path);
+  expect(additionPaths).toContain('workspace/package.json');
+  expect(calls.commits[0]?.deletions).toStrictEqual([
+    { path: 'workspace/.changeset/fixture-intent.md' },
+  ]);
+});
+
 test('auto-merge is armed on the created release PR', async () => {
   const dir = await initFixtureWorkspace();
   await addOrigin(dir);

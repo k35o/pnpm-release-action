@@ -1,6 +1,11 @@
 import * as core from '@actions/core';
 
-import { InputError, detectTokenMismatch, parseInputs } from './core/inputs.ts';
+import {
+  InputError,
+  detectIgnoredGitUserInputs,
+  detectTokenMismatch,
+  parseInputs,
+} from './core/inputs.ts';
 import { decideMode } from './core/mode.ts';
 import type { Mode } from './core/mode.ts';
 import type { PlanEntry } from './core/plan.ts';
@@ -48,6 +53,11 @@ export const run = async (): Promise<void> => {
     core.setSecret(inputs.githubToken);
     const tokenWarning = detectTokenMismatch(process.env, inputs.githubToken);
     if (tokenWarning !== null) core.warning(tokenWarning);
+    const gitUserWarning = detectIgnoredGitUserInputs(
+      process.env,
+      inputs.commitMode,
+    );
+    if (gitUserWarning !== null) core.warning(gitUserWarning);
     const pnpmVersion = await assertPnpmVersion(inputs.cwd);
     core.info(`Using pnpm ${pnpmVersion}`);
 

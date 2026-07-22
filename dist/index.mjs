@@ -16968,6 +16968,13 @@ const parseCommitMode = (env, issues) => {
 	issues.push(`\`commit-mode\` must be \`github-api\` or \`git-cli\`, got \`${raw}\``);
 	return "github-api";
 };
+const detectIgnoredGitUserInputs = (env, commitMode) => {
+	if (commitMode !== "github-api") return null;
+	const setupGitUser = rawInput(env, "setup-git-user");
+	const appSlug = rawInput(env, "app-slug");
+	if ((setupGitUser === "" || setupGitUser === "true") && appSlug === "") return null;
+	return "`setup-git-user` and `app-slug` are ignored with `commit-mode: github-api`: the commit identity comes from the token (remove them, or set `commit-mode: git-cli`)";
+};
 const detectTokenMismatch = (env, githubToken) => {
 	if (env.GITHUB_TOKEN !== void 0 && env.GITHUB_TOKEN !== "" && env.GITHUB_TOKEN !== githubToken) return "the `GITHUB_TOKEN` environment variable is set but differs from the `github-token` input: this action only uses the input";
 	return null;
@@ -29333,6 +29340,8 @@ const run = async () => {
 		setSecret(inputs.githubToken);
 		const tokenWarning = detectTokenMismatch(process.env, inputs.githubToken);
 		if (tokenWarning !== null) warning(tokenWarning);
+		const gitUserWarning = detectIgnoredGitUserInputs(process.env, inputs.commitMode);
+		if (gitUserWarning !== null) warning(gitUserWarning);
 		info(`Using pnpm ${await assertPnpmVersion(inputs.cwd)}`);
 		plan = await detectPlan(inputs.cwd);
 		mode = decideMode(plan.length > 0, inputs.modeWhenClean);
