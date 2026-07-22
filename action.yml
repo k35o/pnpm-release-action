@@ -62,6 +62,17 @@ inputs:
       What to do when no change intents are pending: `publish` or `none`.
     required: false
     default: publish
+  commit-mode:
+    description: >-
+      How the version commit is created: `github-api` (default; GitHub signs
+      the commit as the token's identity, satisfying required-signature rules)
+      or `git-cli` (local commit and force-push).
+    required: false
+    default: github-api
+  auto-merge:
+    description: Arm GitHub auto-merge (merge commit) on the release PR.
+    required: false
+    default: 'false'
   sync-lockfile:
     description: Run `pnpm install --lockfile-only` after versioning.
     required: false

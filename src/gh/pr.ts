@@ -26,6 +26,21 @@ export type GhClient = {
     body: string;
     prerelease: boolean;
   }) => Promise<void>;
+  readonly resetBranch: (params: {
+    branch: string;
+    sha: string;
+  }) => Promise<void>;
+  readonly commitOnBranch: (params: {
+    branch: string;
+    expectedHeadOid: string;
+    message: string;
+    additions: ReadonlyArray<{ path: string; contents: string }>;
+    deletions: ReadonlyArray<{ path: string }>;
+  }) => Promise<void>;
+  readonly enableAutoMerge: (params: {
+    nodeId: string;
+    number: number;
+  }) => Promise<void>;
 };
 
 // @actions/github の型はハンドラを void 扱いだが、throttling プラグインは boolean の
@@ -115,6 +130,89 @@ export const createGhClient = (
         body,
         prerelease,
       });
+    },
+    // リリースブランチをトリガー SHA に作り直す（存在しなければ作成）
+    resetBranch: async ({ branch, sha }): Promise<void> => {
+      try {
+        await octokit.rest.git.updateRef({
+          owner,
+          repo,
+          ref: `heads/${branch}`,
+          sha,
+          force: true,
+        });
+      } catch (error) {
+        const { status } = error as { status?: number };
+        if (status !== 404 && status !== 422) throw error;
+        try {
+          await octokit.rest.git.createRef({
+            owner,
+            repo,
+            ref: `refs/heads/${branch}`,
+            sha,
+          });
+        } catch {
+          // 422 は「ref が無い」以外（保護ルール拒否等）もあり得る。createRef も
+          // 失敗したなら元の updateRef エラーの方が根本原因を示している
+          throw error;
+        }
+      }
+    },
+    // createCommitOnBranch はトークンの主体（App / github-actions）として
+    // GitHub が署名するため、required_signatures な ruleset を満たせる
+    commitOnBranch: async ({
+      branch,
+      expectedHeadOid,
+      message,
+      additions,
+      deletions,
+    }): Promise<void> => {
+      await octokit.graphql(
+        `mutation($input: CreateCommitOnBranchInput!) {
+          createCommitOnBranch(input: $input) { commit { oid } }
+        }`,
+        {
+          input: {
+            branch: {
+              repositoryNameWithOwner: `${owner}/${repo}`,
+              branchName: branch,
+            },
+            expectedHeadOid,
+            message: { headline: message },
+            fileChanges: {
+              additions: [...additions],
+              deletions: [...deletions],
+            },
+          },
+        },
+      );
+    },
+    // PR が既に clean なら auto-merge は予約できないので直接マージする
+    enableAutoMerge: async ({ nodeId, number }): Promise<void> => {
+      try {
+        await octokit.graphql(
+          `mutation($id: ID!) {
+            enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: MERGE }) {
+              pullRequest { number }
+            }
+          }`,
+          { id: nodeId },
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // clean は「即マージ可能」、unstable は「必須でないチェックが未完/失敗」
+        // — どちらも auto-merge は予約できないが REST merge は通る
+        if (/is in (?:clean|unstable) status/u.test(message)) {
+          await octokit.rest.pulls.merge({
+            owner,
+            repo,
+            pull_number: number,
+            merge_method: 'merge',
+          });
+          return;
+        }
+        throw error;
+      }
     },
   };
 };
