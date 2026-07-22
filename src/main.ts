@@ -1,7 +1,8 @@
 import * as core from '@actions/core';
 
 import { InputError, detectTokenMismatch, parseInputs } from './core/inputs.ts';
-import { type Mode, decideMode } from './core/mode.ts';
+import { decideMode } from './core/mode.ts';
+import type { Mode } from './core/mode.ts';
 import type { PlanEntry } from './core/plan.ts';
 import { createGhClient } from './gh/pr.ts';
 import { runPublishMode } from './modes/publish.ts';

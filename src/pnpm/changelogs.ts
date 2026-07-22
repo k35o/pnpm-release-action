@@ -3,10 +3,8 @@ import { join } from 'node:path';
 
 import { parse } from 'yaml';
 
-import {
-  type ChangelogPreview,
-  extractVersionSection,
-} from '../core/changelog.ts';
+import { extractVersionSection } from '../core/changelog.ts';
+import type { ChangelogPreview } from '../core/changelog.ts';
 type ChangelogStorage = 'registry' | 'repository';
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
