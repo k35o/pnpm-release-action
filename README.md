@@ -49,34 +49,34 @@ Use a GitHub App token (`actions/create-github-app-token`) rather than the defau
 
 ## Inputs
 
-| input | default | description |
-| --- | --- | --- |
-| `build` | – | Command run before the built-in publish (e.g. `pnpm build`). Skipped when empty; never runs in version-PR mode |
-| `commit-message` | `chore: prepare release` | Version commit message |
-| `pr-title` | `chore: prepare release` | Release PR title |
-| `base-branch` | triggering branch | Base branch of the release PR. Required explicitly on non-branch triggers |
-| `branch-prefix` | `pnpm-release/` | Release branch is `<branch-prefix><base-branch>` |
-| `cwd` | workspace root | Working directory of the pnpm workspace (repo subdirectories supported) |
-| `setup-git-user` | `true` | `true` (github-actions bot) / `false` (keep ambient config) / `app` (resolve the bot user of `app-slug`) |
-| `app-slug` | – | App slug output of `actions/create-github-app-token`; required with `setup-git-user: app` |
-| `create-github-releases` | `true` | Create a GitHub Release per released package |
-| `push-git-tags` | `true` | Push tags (`v<version>` for single-package repos, `<name>@<version>` for monorepos) |
-| `mode-when-clean` | `publish` | `publish` or `none` when no intents are pending |
-| `sync-lockfile` | `true` | Run `pnpm install --lockfile-only` after versioning |
-| `allow-prerelease-on-latest` | `false` | Allow prereleases in the release to reach the `latest` dist-tag |
-| `github-token` | `github.token` | Token for git pushes, the release PR, tags, and Releases |
+| input                        | default                  | description                                                                                                    |
+| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `build`                      | –                        | Command run before the built-in publish (e.g. `pnpm build`). Skipped when empty; never runs in version-PR mode |
+| `commit-message`             | `chore: prepare release` | Version commit message                                                                                         |
+| `pr-title`                   | `chore: prepare release` | Release PR title                                                                                               |
+| `base-branch`                | triggering branch        | Base branch of the release PR. Required explicitly on non-branch triggers                                      |
+| `branch-prefix`              | `pnpm-release/`          | Release branch is `<branch-prefix><base-branch>`                                                               |
+| `cwd`                        | workspace root           | Working directory of the pnpm workspace (repo subdirectories supported)                                        |
+| `setup-git-user`             | `true`                   | `true` (github-actions bot) / `false` (keep ambient config) / `app` (resolve the bot user of `app-slug`)       |
+| `app-slug`                   | –                        | App slug output of `actions/create-github-app-token`; required with `setup-git-user: app`                      |
+| `create-github-releases`     | `true`                   | Create a GitHub Release per released package                                                                   |
+| `push-git-tags`              | `true`                   | Push tags (`v<version>` for single-package repos, `<name>@<version>` for monorepos)                            |
+| `mode-when-clean`            | `publish`                | `publish` or `none` when no intents are pending                                                                |
+| `sync-lockfile`              | `true`                   | Run `pnpm install --lockfile-only` after versioning                                                            |
+| `allow-prerelease-on-latest` | `false`                  | Allow prereleases in the release to reach the `latest` dist-tag                                                |
+| `github-token`               | `github.token`           | Token for git pushes, the release PR, tags, and Releases                                                       |
 
 changesets/action input names (`publish`, `setupGitUser`, …) are intentionally not supported — they fail with guidance toward the replacement.
 
 ## Outputs
 
-| output | description |
-| --- | --- |
-| `mode` | `version` / `publish` / `none` |
-| `published` | `"true"` when at least one package was published |
-| `published-packages` | JSON array of `{ name, version }` |
-| `has-pending-changes` | `"true"` when the release plan was non-empty |
-| `pr-number` | Release PR number (empty outside version mode) |
+| output                | description                                      |
+| --------------------- | ------------------------------------------------ |
+| `mode`                | `version` / `publish` / `none`                   |
+| `published`           | `"true"` when at least one package was published |
+| `published-packages`  | JSON array of `{ name, version }`                |
+| `has-pending-changes` | `"true"` when the release plan was non-empty     |
+| `pr-number`           | Release PR number (empty outside version mode)   |
 
 ## Requirements
 
