@@ -1,6 +1,6 @@
 {
   "name": "pnpm-release-action",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "CI layer for pnpm built-in versioning: release PRs, tags, and GitHub Releases",
   "keywords": [],
