@@ -1,0 +1,8 @@
+pnpm-release-action@0.1.0:
+  dir: ""
+  intents:
+    - action-skeleton
+    - ignore-pnpm-owned-files
+    - publish-mode
+    - self-release
+    - version-pr-mode
