@@ -21891,7 +21891,7 @@ const createGhClient = (token, owner, repo) => {
 			}
 		},
 		commitOnBranch: async ({ branch, expectedHeadOid, message, additions, deletions }) => {
-			await octokit.graphql(`mutation($input: CreateCommitOnBranchInput!) {
+			return (await octokit.graphql(`mutation($input: CreateCommitOnBranchInput!) {
           createCommitOnBranch(input: $input) { commit { oid } }
         }`, { input: {
 				branch: {
@@ -21904,7 +21904,19 @@ const createGhClient = (token, owner, repo) => {
 					additions: [...additions],
 					deletions: [...deletions]
 				}
-			} });
+			} })).createCommitOnBranch.commit.oid;
+		},
+		deleteBranch: async (branch) => {
+			try {
+				await octokit.rest.git.deleteRef({
+					owner,
+					repo,
+					ref: `heads/${branch}`
+				});
+			} catch (error) {
+				const { status } = error;
+				if (status !== 404 && status !== 422) throw error;
+			}
 		},
 		enableAutoMerge: async ({ nodeId, number }) => {
 			try {
@@ -29189,17 +29201,26 @@ const commitViaApi = async (inputs, client, branch, triggerSha, toplevel) => {
 	})));
 	const payloadBytes = additions.reduce((sum, entry) => sum + entry.contents.length, 0);
 	if (payloadBytes > MAX_API_COMMIT_BYTES) throw new Error(`the version commit is too large for the GitHub API (${String(Math.round(payloadBytes / 1024 / 1024))} MiB encoded): set \`commit-mode: git-cli\``);
+	const staging = `${branch}--staging`;
 	await client.resetBranch({
-		branch,
+		branch: staging,
 		sha: triggerSha
 	});
-	await client.commitOnBranch({
-		branch,
-		expectedHeadOid: triggerSha,
-		message: inputs.commitMessage,
-		additions,
-		deletions: changes.deletions.map((path) => ({ path }))
-	});
+	try {
+		const newSha = await client.commitOnBranch({
+			branch: staging,
+			expectedHeadOid: triggerSha,
+			message: inputs.commitMessage,
+			additions,
+			deletions: changes.deletions.map((path) => ({ path }))
+		});
+		await client.resetBranch({
+			branch,
+			sha: newSha
+		});
+	} finally {
+		await client.deleteBranch(staging).catch(() => void 0);
+	}
 };
 const commitViaGit = async (inputs, branch) => {
 	if (!await commitAll(inputs.cwd, inputs.commitMessage)) info("Nothing to commit: the release branch is already up to date.");

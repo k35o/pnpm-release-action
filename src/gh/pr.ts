@@ -36,7 +36,8 @@ export type GhClient = {
     message: string;
     additions: ReadonlyArray<{ path: string; contents: string }>;
     deletions: ReadonlyArray<{ path: string }>;
-  }) => Promise<void>;
+  }) => Promise<string>;
+  readonly deleteBranch: (branch: string) => Promise<void>;
   readonly enableAutoMerge: (params: {
     nodeId: string;
     number: number;
@@ -166,8 +167,10 @@ export const createGhClient = (
       message,
       additions,
       deletions,
-    }): Promise<void> => {
-      await octokit.graphql(
+    }): Promise<string> => {
+      const response = await octokit.graphql<{
+        createCommitOnBranch: { commit: { oid: string } };
+      }>(
         `mutation($input: CreateCommitOnBranchInput!) {
           createCommitOnBranch(input: $input) { commit { oid } }
         }`,
@@ -186,6 +189,20 @@ export const createGhClient = (
           },
         },
       );
+      return response.createCommitOnBranch.commit.oid;
+    },
+    deleteBranch: async (branch: string): Promise<void> => {
+      try {
+        await octokit.rest.git.deleteRef({
+          owner,
+          repo,
+          ref: `heads/${branch}`,
+        });
+      } catch (error) {
+        const { status } = error as { status?: number };
+        // 既に無い分には困らない
+        if (status !== 404 && status !== 422) throw error;
+      }
     },
     // PR が既に clean なら auto-merge は予約できないので直接マージする
     enableAutoMerge: async ({ nodeId, number }): Promise<void> => {

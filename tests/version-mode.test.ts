@@ -46,6 +46,7 @@ type RecordedCalls = {
     deletions: ReadonlyArray<{ path: string }>;
   }>;
   autoMerged: Array<{ nodeId: string; number: number }>;
+  deletedBranches: string[];
 };
 
 const makeFakeClient = (
@@ -57,6 +58,7 @@ const makeFakeClient = (
     resets: [],
     commits: [],
     autoMerged: [],
+    deletedBranches: [],
   };
   const client: GhClient = {
     resolveBotUserId: () => Promise.resolve(1),
@@ -77,6 +79,10 @@ const makeFakeClient = (
     },
     commitOnBranch: (params) => {
       calls.commits.push(params);
+      return Promise.resolve('NEWSHA');
+    },
+    deleteBranch: (branch) => {
+      calls.deletedBranches.push(branch);
       return Promise.resolve();
     },
     enableAutoMerge: (params) => {
@@ -157,11 +163,17 @@ test('github-api mode commits via the API with signed-commit file changes', asyn
   );
 
   expect(result).toBe('completed');
-  // ブランチはトリガー SHA に API でリセットされる
-  expect(calls.resets).toHaveLength(1);
-  expect(calls.resets[0]?.branch).toBe('pnpm-release/main');
+  // staging ブランチに署名コミットを作り、本ブランチへ原子的に force 移動する
+  expect(calls.resets).toHaveLength(2);
+  expect(calls.resets[0]?.branch).toBe('pnpm-release/main--staging');
+  expect(calls.resets[1]).toStrictEqual({
+    branch: 'pnpm-release/main',
+    sha: 'NEWSHA',
+  });
+  expect(calls.deletedBranches).toStrictEqual(['pnpm-release/main--staging']);
   expect(calls.commits).toHaveLength(1);
   const commit = calls.commits[0];
+  expect(commit?.branch).toBe('pnpm-release/main--staging');
   expect(commit?.expectedHeadOid).toBe(calls.resets[0]?.sha);
   const additionPaths = commit?.additions.map((entry) => entry.path);
   expect(additionPaths).toContain('package.json');

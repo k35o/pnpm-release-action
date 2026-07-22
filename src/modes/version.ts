@@ -57,14 +57,24 @@ const commitViaApi = async (
       `the version commit is too large for the GitHub API (${String(Math.round(payloadBytes / 1024 / 1024))} MiB encoded): set \`commit-mode: git-cli\``,
     );
   }
-  await client.resetBranch({ branch, sha: triggerSha });
-  await client.commitOnBranch({
-    branch,
-    expectedHeadOid: triggerSha,
-    message: inputs.commitMessage,
-    additions,
-    deletions: changes.deletions.map((path) => ({ path })),
-  });
+  // リリースブランチを直接 base に reset してからコミットすると、その間に PR が
+  // 「base と同一」になり GitHub が auto-close する（force 変更後は reopen 不能 —
+  // 初回のセルフリリースで実際に踏んだ）。一時ブランチで署名コミットを作り、
+  // 本ブランチは旧 head から新コミットへ原子的に force 移動する
+  const staging = `${branch}--staging`;
+  await client.resetBranch({ branch: staging, sha: triggerSha });
+  try {
+    const newSha = await client.commitOnBranch({
+      branch: staging,
+      expectedHeadOid: triggerSha,
+      message: inputs.commitMessage,
+      additions,
+      deletions: changes.deletions.map((path) => ({ path })),
+    });
+    await client.resetBranch({ branch, sha: newSha });
+  } finally {
+    await client.deleteBranch(staging).catch(() => undefined);
+  }
 };
 
 const commitViaGit = async (inputs: Inputs, branch: string): Promise<void> => {
