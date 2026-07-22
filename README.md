@@ -33,9 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/create-github-app-token@<sha> # v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - uses: actions/checkout@<sha> # v6
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
       # install pnpm >= 11.13.0 here (pnpm/action-setup, mise, ...)
       - uses: k35o/pnpm-release-action@<sha> # pin a release once one exists
         with:
