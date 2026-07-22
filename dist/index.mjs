@@ -27418,7 +27418,7 @@ const syncLockfile = async (cwd) => {
 	await runCommand(cwd, "pnpm", ["install", "--lockfile-only"]);
 };
 //#endregion
-//#region src/index.ts
+//#region src/main.ts
 const setPlanOutputs = (mode, plan) => {
 	setOutput("mode", mode);
 	setOutput("has-pending-changes", plan.length > 0 ? "true" : "false");
@@ -27439,10 +27439,7 @@ const writeSummary = async (mode, plan) => {
 	summary.addRaw(lines.join("\n"), true);
 	await summary.write();
 };
-const runVersionMode = async (inputs) => {
-	const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? "").split("/");
-	if (owner === void 0 || owner === "" || repo === void 0 || repo === "") throw new InputError(["GITHUB_REPOSITORY is not set"]);
-	const client = createPrClient(inputs.githubToken, owner, repo);
+const runVersionMode = async (inputs, client) => {
 	await configureIdentity(inputs.cwd, inputs.gitUser, client.resolveBotUserId);
 	await assertCleanTree(inputs.cwd);
 	const branch = `${inputs.branchPrefix}${inputs.baseBranch}`;
@@ -27495,7 +27492,9 @@ const run = async () => {
 		mode = decideMode(plan.length > 0, inputs.modeWhenClean);
 		setPlanOutputs(mode, plan);
 		if (mode === "version") {
-			if (await runVersionMode(inputs) === "empty-apply") {
+			const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? "").split("/");
+			if (owner === void 0 || owner === "" || repo === void 0 || repo === "") throw new InputError(["GITHUB_REPOSITORY is not set"]);
+			if (await runVersionMode(inputs, createPrClient(inputs.githubToken, owner, repo)) === "empty-apply") {
 				mode = "none";
 				plan = [];
 				setPlanOutputs("none", []);
@@ -27512,4 +27511,7 @@ const run = async () => {
 };
 await run();
 //#endregion
-export { run };
+//#region src/index.ts
+await run();
+//#endregion
+export {};
