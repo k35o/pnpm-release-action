@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Inputs } from '../src/core/inputs.ts';
-import type { GhClient, PrRef } from '../src/gh/pr.ts';
+import type { GhClient, PrRef } from '../src/gh/client.ts';
 import { currentRef } from '../src/git/repo.ts';
 import { runVersionMode } from '../src/modes/version.ts';
 import { applyVersion } from '../src/pnpm/version.ts';

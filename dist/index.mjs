@@ -17017,6 +17017,18 @@ const parseInputs = (env) => {
 	};
 };
 //#endregion
+//#region src/core/markdown.ts
+const planTable = (plan) => [
+	"| Package | From | To |",
+	"| --- | --- | --- |",
+	...plan.map((entry) => `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`)
+].join("\n");
+const publishedTable = (published) => [
+	"| Package | Version |",
+	"| --- | --- |",
+	...published.map((pkg) => `| \`${pkg.name}\` | ${pkg.version} |`)
+].join("\n");
+//#endregion
 //#region src/core/mode.ts
 const decideMode = (hasPendingChanges, modeWhenClean) => hasPendingChanges ? "version" : modeWhenClean;
 //#endregion
@@ -20464,9 +20476,157 @@ function getOctokit(token, options, ...additionalPlugins) {
 	return new (GitHub.plugin(...additionalPlugins))(getOctokitOptions(token, options));
 }
 //#endregion
-//#region src/gh/pr.ts
+//#region src/gh/commit-ops.ts
+const createCommitOps = (octokit, owner, repo) => ({
+	resetBranch: async ({ branch, sha }) => {
+		try {
+			await octokit.rest.git.updateRef({
+				owner,
+				repo,
+				ref: `heads/${branch}`,
+				sha,
+				force: true
+			});
+		} catch (error) {
+			const { status } = error;
+			if (status !== 404 && status !== 422) throw error;
+			try {
+				await octokit.rest.git.createRef({
+					owner,
+					repo,
+					ref: `refs/heads/${branch}`,
+					sha
+				});
+			} catch {
+				throw error;
+			}
+		}
+	},
+	commitOnBranch: async ({ branch, expectedHeadOid, message, additions, deletions }) => {
+		return (await octokit.graphql(`mutation($input: CreateCommitOnBranchInput!) {
+        createCommitOnBranch(input: $input) { commit { oid } }
+      }`, { input: {
+			branch: {
+				repositoryNameWithOwner: `${owner}/${repo}`,
+				branchName: branch
+			},
+			expectedHeadOid,
+			message: { headline: message },
+			fileChanges: {
+				additions: [...additions],
+				deletions: [...deletions]
+			}
+		} })).createCommitOnBranch.commit.oid;
+	},
+	deleteBranch: async (branch) => {
+		try {
+			await octokit.rest.git.deleteRef({
+				owner,
+				repo,
+				ref: `heads/${branch}`
+			});
+		} catch (error) {
+			const { status } = error;
+			if (status !== 404 && status !== 422) throw error;
+		}
+	}
+});
+//#endregion
+//#region src/gh/pr-ops.ts
 const AUTO_MERGE_UNAVAILABLE = [/not allowed for this repository/iu, /draft/iu];
 const isAutoMergeUnavailable = (message) => AUTO_MERGE_UNAVAILABLE.some((pattern) => pattern.test(message));
+const createPrOps = (octokit, owner, repo) => ({
+	findOpenPr: async ({ head, base }) => {
+		const { data } = await octokit.rest.pulls.list({
+			owner,
+			repo,
+			state: "open",
+			head: `${owner}:${head}`,
+			base,
+			per_page: 1
+		});
+		const pr = data[0];
+		return pr === void 0 ? null : {
+			number: pr.number,
+			nodeId: pr.node_id
+		};
+	},
+	createPr: async ({ head, base, title, body }) => {
+		const { data } = await octokit.rest.pulls.create({
+			owner,
+			repo,
+			head,
+			base,
+			title,
+			body
+		});
+		return {
+			number: data.number,
+			nodeId: data.node_id
+		};
+	},
+	updatePr: async ({ nodeId, title, body }) => {
+		await octokit.graphql(`mutation($id: ID!, $title: String!, $body: String!) {
+        updatePullRequest(input: { pullRequestId: $id, title: $title, body: $body, state: OPEN }) {
+          pullRequest { number }
+        }
+      }`, {
+			id: nodeId,
+			title,
+			body
+		});
+	},
+	enableAutoMerge: async ({ nodeId, number }) => {
+		try {
+			await octokit.graphql(`mutation($id: ID!) {
+          enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: MERGE }) {
+            pullRequest { number }
+          }
+        }`, { id: nodeId });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (/is in (?:clean|unstable) status/u.test(message)) {
+				await octokit.rest.pulls.merge({
+					owner,
+					repo,
+					pull_number: number,
+					merge_method: "merge"
+				});
+				return;
+			}
+			throw error;
+		}
+	}
+});
+//#endregion
+//#region src/gh/release-ops.ts
+const createReleaseOps = (octokit, owner, repo) => ({
+	hasRelease: async (tag) => {
+		try {
+			await octokit.rest.repos.getReleaseByTag({
+				owner,
+				repo,
+				tag
+			});
+			return true;
+		} catch (error) {
+			if (error.status === 404) return false;
+			throw error;
+		}
+	},
+	createRelease: async ({ tag, body, prerelease }) => {
+		await octokit.rest.repos.createRelease({
+			owner,
+			repo,
+			tag_name: tag,
+			name: tag,
+			body,
+			prerelease
+		});
+	}
+});
+//#endregion
+//#region src/gh/client.ts
 const createGhClient = (token, owner, repo) => {
 	const octokit = getOctokit(token);
 	return {
@@ -20476,144 +20636,14 @@ const createGhClient = (token, owner, repo) => {
 			const { data } = await octokit.rest.users.getByUsername({ username: `${slug}[bot]` });
 			return data.id;
 		},
-		findOpenPr: async ({ head, base }) => {
-			const { data } = await octokit.rest.pulls.list({
-				owner,
-				repo,
-				state: "open",
-				head: `${owner}:${head}`,
-				base,
-				per_page: 1
-			});
-			const pr = data[0];
-			return pr === void 0 ? null : {
-				number: pr.number,
-				nodeId: pr.node_id
-			};
-		},
-		createPr: async ({ head, base, title, body }) => {
-			const { data } = await octokit.rest.pulls.create({
-				owner,
-				repo,
-				head,
-				base,
-				title,
-				body
-			});
-			return {
-				number: data.number,
-				nodeId: data.node_id
-			};
-		},
-		updatePr: async ({ nodeId, title, body }) => {
-			await octokit.graphql(`mutation($id: ID!, $title: String!, $body: String!) {
-          updatePullRequest(input: { pullRequestId: $id, title: $title, body: $body, state: OPEN }) {
-            pullRequest { number }
-          }
-        }`, {
-				id: nodeId,
-				title,
-				body
-			});
-		},
-		hasRelease: async (tag) => {
-			try {
-				await octokit.rest.repos.getReleaseByTag({
-					owner,
-					repo,
-					tag
-				});
-				return true;
-			} catch (error) {
-				if (error.status === 404) return false;
-				throw error;
-			}
-		},
-		createRelease: async ({ tag, body, prerelease }) => {
-			await octokit.rest.repos.createRelease({
-				owner,
-				repo,
-				tag_name: tag,
-				name: tag,
-				body,
-				prerelease
-			});
-		},
-		resetBranch: async ({ branch, sha }) => {
-			try {
-				await octokit.rest.git.updateRef({
-					owner,
-					repo,
-					ref: `heads/${branch}`,
-					sha,
-					force: true
-				});
-			} catch (error) {
-				const { status } = error;
-				if (status !== 404 && status !== 422) throw error;
-				try {
-					await octokit.rest.git.createRef({
-						owner,
-						repo,
-						ref: `refs/heads/${branch}`,
-						sha
-					});
-				} catch {
-					throw error;
-				}
-			}
-		},
-		commitOnBranch: async ({ branch, expectedHeadOid, message, additions, deletions }) => {
-			return (await octokit.graphql(`mutation($input: CreateCommitOnBranchInput!) {
-          createCommitOnBranch(input: $input) { commit { oid } }
-        }`, { input: {
-				branch: {
-					repositoryNameWithOwner: `${owner}/${repo}`,
-					branchName: branch
-				},
-				expectedHeadOid,
-				message: { headline: message },
-				fileChanges: {
-					additions: [...additions],
-					deletions: [...deletions]
-				}
-			} })).createCommitOnBranch.commit.oid;
-		},
-		deleteBranch: async (branch) => {
-			try {
-				await octokit.rest.git.deleteRef({
-					owner,
-					repo,
-					ref: `heads/${branch}`
-				});
-			} catch (error) {
-				const { status } = error;
-				if (status !== 404 && status !== 422) throw error;
-			}
-		},
-		enableAutoMerge: async ({ nodeId, number }) => {
-			try {
-				await octokit.graphql(`mutation($id: ID!) {
-            enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: MERGE }) {
-              pullRequest { number }
-            }
-          }`, { id: nodeId });
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				if (/is in (?:clean|unstable) status/u.test(message)) {
-					await octokit.rest.pulls.merge({
-						owner,
-						repo,
-						pull_number: number,
-						merge_method: "merge"
-					});
-					return;
-				}
-				throw error;
-			}
-		}
+		...createPrOps(octokit, owner, repo),
+		...createCommitOps(octokit, owner, repo),
+		...createReleaseOps(octokit, owner, repo)
 	};
 };
+//#endregion
+//#region src/core/keys.ts
+const releaseKey = (name, version) => `${name}@${version}`;
 //#endregion
 //#region node_modules/.pnpm/yaml@2.9.0/node_modules/yaml/dist/nodes/identity.js
 var require_identity = /* @__PURE__ */ __commonJSMin(((exports) => {
@@ -27180,7 +27210,7 @@ var require_public_api = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.stringify = stringify;
 }));
 //#endregion
-//#region src/core/ledger.ts
+//#region src/core/records.ts
 var import_dist = (/* @__PURE__ */ __commonJSMin(((exports) => {
 	var composer = require_composer();
 	var Document = require_Document();
@@ -27227,6 +27257,9 @@ var import_dist = (/* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.visit = visit.visit;
 	exports.visitAsync = visit.visitAsync;
 })))();
+const asRecord = (value) => typeof value === "object" && value !== null ? value : null;
+//#endregion
+//#region src/core/ledger.ts
 const splitKey = (key) => {
 	const at = key.lastIndexOf("@");
 	if (at <= 0) return null;
@@ -27238,12 +27271,13 @@ const splitKey = (key) => {
 const parseLedger = (raw) => {
 	const entries = /* @__PURE__ */ new Map();
 	if (raw === null) return entries;
-	const parsed = (0, import_dist.parse)(raw);
-	if (typeof parsed !== "object" || parsed === null) return entries;
+	const parsed = asRecord((0, import_dist.parse)(raw));
+	if (parsed === null) return entries;
 	for (const [key, value] of Object.entries(parsed)) {
 		const split = splitKey(key);
 		if (split === null) continue;
-		const dir = typeof value === "object" && value !== null && typeof value.dir === "string" ? value.dir : ".";
+		const dirValue = asRecord(value)?.dir;
+		const dir = typeof dirValue === "string" ? dirValue : ".";
 		entries.set(key, {
 			name: split.name,
 			version: split.version,
@@ -27261,7 +27295,7 @@ const buildReleaseTargets = (published, ledgerNew, singlePackage) => {
 	const seen = /* @__PURE__ */ new Set();
 	const targets = [];
 	for (const { name, version } of [...published, ...ledgerNew]) {
-		const key = `${name}@${version}`;
+		const key = releaseKey(name, version);
 		if (seen.has(key)) continue;
 		seen.add(key);
 		targets.push({
@@ -27464,7 +27498,6 @@ const extractVersionSection = (changelog, version) => {
 };
 //#endregion
 //#region src/pnpm/changelogs.ts
-const asRecord = (value) => typeof value === "object" && value !== null ? value : null;
 const readWorkspaceConfig = async (cwd) => {
 	let raw;
 	try {
@@ -27516,7 +27549,7 @@ const collectChangelogPreviews = async (cwd, plan) => {
 	}));
 	const dirs = await readLedgerDirs(cwd);
 	return Promise.all(plan.map(async ({ name, newVersion }) => {
-		const dir = dirs.get(`${name}@${newVersion}`);
+		const dir = dirs.get(releaseKey(name, newVersion));
 		if (dir === void 0) return {
 			name,
 			newVersion,
@@ -27646,18 +27679,23 @@ const releasedByLedger = async (cwd) => {
 const guardPrereleases = (packages, released, allow) => {
 	const leaks = findPrereleaseLeaks(packages);
 	if (leaks.length === 0) return;
-	const releasedKeys = new Set(released.map((entry) => `${entry.name}@${entry.version}`));
-	const inRelease = leaks.filter((pkg) => pkg.version !== null && releasedKeys.has(`${pkg.name}@${pkg.version}`));
+	const releasedKeys = new Set(released.map((entry) => releaseKey(entry.name, entry.version)));
+	const inRelease = leaks.filter((pkg) => pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version)));
 	const outside = leaks.filter((pkg) => !inRelease.includes(pkg));
 	if (inRelease.length > 0 && !allow) throw new Error(`prerelease versions are in this release and would land on the \`latest\` dist-tag: ${inRelease.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — set \`allow-prerelease-on-latest: true\` to proceed (dist-tag selection is not supported yet)`);
 	if (outside.length > 0) warning(`prerelease versions exist in the workspace but are not part of this release: ${outside.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — publish skips them if they are already on the registry, but check them if this is unexpected`);
 };
 const appendStepSummary = async (published, targets) => {
 	if (process.env.GITHUB_STEP_SUMMARY === void 0) return;
-	const lines = ["### Published", ""];
-	if (published.length === 0) lines.push("_No packages were published to the registry._");
-	else lines.push("| Package | Version |", "| --- | --- |", ...published.map((pkg) => `| \`${pkg.name}\` | ${pkg.version} |`));
-	lines.push("", "### Tags / Releases", "", targets.length === 0 ? "_None._" : targets.map((target) => `- \`${target.tag}\``).join("\n"));
+	const lines = [
+		"### Published",
+		"",
+		published.length === 0 ? "_No packages were published to the registry._" : publishedTable(published),
+		"",
+		"### Tags / Releases",
+		"",
+		targets.length === 0 ? "_None._" : targets.map((target) => `- \`${target.tag}\``).join("\n")
+	];
 	summary.addRaw(lines.join("\n"), true);
 	await summary.write();
 };
@@ -27702,18 +27740,18 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 		await pushRefs(inputs.cwd, targets.map((target) => `refs/tags/${target.tag}`), inputs.githubToken);
 	}
 	if (inputs.createGithubReleases) {
-		const sectionFor = new Map(previews.map((preview) => [`${preview.name}@${preview.newVersion}`, preview.section]));
-		const uncovered = targets.filter((target) => !sectionFor.has(`${target.name}@${target.version}`));
+		const sectionFor = new Map(previews.map((preview) => [releaseKey(preview.name, preview.newVersion), preview.section]));
+		const uncovered = targets.filter((target) => !sectionFor.has(releaseKey(target.name, target.version)));
 		if (uncovered.length > 0) {
 			const extra = await collectChangelogPreviews(inputs.cwd, uncovered.map((target) => ({
 				name: target.name,
 				newVersion: target.version
 			})));
-			for (const preview of extra) sectionFor.set(`${preview.name}@${preview.newVersion}`, preview.section);
+			for (const preview of extra) sectionFor.set(releaseKey(preview.name, preview.newVersion), preview.section);
 		}
 		for (const target of targets) {
 			if (await client.hasRelease(target.tag)) continue;
-			const section = sectionFor.get(`${target.name}@${target.version}`) ?? null;
+			const section = sectionFor.get(releaseKey(target.name, target.version)) ?? null;
 			if (section === null) warning(`No changelog entry was found for ${target.name}@${target.version}: creating the release with a minimal body.`);
 			await client.createRelease({
 				tag: target.tag,
@@ -27760,11 +27798,6 @@ const parsePorcelain = (raw) => {
 //#region src/core/pr-body.ts
 const MAX_BODY_LENGTH = 6e4;
 const HEADER = "Merging this PR releases the packages below. Versions and changelogs were computed by [pnpm's release management](https://pnpm.io/versioning); the PR is maintained by [pnpm-release-action](https://github.com/k35o/pnpm-release-action) and rebuilt on every push to the base branch.";
-const planTable = (plan) => [
-	"| Package | From | To |",
-	"| --- | --- | --- |",
-	...plan.map((entry) => `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`)
-].join("\n");
 const stripVersionHeading = (section, version) => {
 	const lines = section.split("\n");
 	if (lines[0]?.trim() === `## ${version}`) return lines.slice(1).join("\n").trim();
@@ -27776,11 +27809,11 @@ const packageBlock = (entry, section) => {
 	return `${packageHeading(entry)}\n\n${stripVersionHeading(section, entry.newVersion)}`;
 };
 const composePrBody = (plan, previews) => {
-	const sections = new Map(previews.map((preview) => [`${preview.name}@${preview.newVersion}`, preview.section]));
+	const sections = new Map(previews.map((preview) => [releaseKey(preview.name, preview.newVersion), preview.section]));
 	const assemble = (withBodies) => [
 		HEADER,
 		planTable(plan),
-		...plan.map((entry) => withBodies ? packageBlock(entry, sections.get(`${entry.name}@${entry.newVersion}`) ?? null) : packageHeading(entry))
+		...plan.map((entry) => withBodies ? packageBlock(entry, sections.get(releaseKey(entry.name, entry.newVersion)) ?? null) : packageHeading(entry))
 	].join("\n\n");
 	const full = assemble(true);
 	if (full.length <= MAX_BODY_LENGTH) return full;
@@ -28026,10 +28059,9 @@ const writeSummary = async (mode, plan) => {
 		"## pnpm-release-action",
 		"",
 		`Mode: \`${mode}\``,
-		""
+		"",
+		plan.length > 0 ? planTable(plan) : "No pending change intents."
 	];
-	if (plan.length > 0) lines.push("| Package | From | To |", "| --- | --- | --- |", ...plan.map((entry) => `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`));
-	else lines.push("No pending change intents.");
 	summary.addRaw(lines.join("\n"), true);
 	await summary.write();
 };

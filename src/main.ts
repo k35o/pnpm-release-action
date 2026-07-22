@@ -6,10 +6,11 @@ import {
   detectTokenMismatch,
   parseInputs,
 } from './core/inputs.ts';
+import { planTable } from './core/markdown.ts';
 import { decideMode } from './core/mode.ts';
 import type { Mode } from './core/mode.ts';
 import type { PlanEntry } from './core/plan.ts';
-import { createGhClient } from './gh/pr.ts';
+import { createGhClient } from './gh/client.ts';
 import { runPublishMode } from './modes/publish.ts';
 import { runVersionMode } from './modes/version.ts';
 import { assertPnpmVersion } from './pnpm/preflight.ts';
@@ -28,19 +29,13 @@ const writeSummary = async (
   plan: readonly PlanEntry[],
 ): Promise<void> => {
   if (process.env.GITHUB_STEP_SUMMARY === undefined) return;
-  const lines = ['## pnpm-release-action', '', `Mode: \`${mode}\``, ''];
-  if (plan.length > 0) {
-    lines.push(
-      '| Package | From | To |',
-      '| --- | --- | --- |',
-      ...plan.map(
-        (entry) =>
-          `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`,
-      ),
-    );
-  } else {
-    lines.push('No pending change intents.');
-  }
+  const lines = [
+    '## pnpm-release-action',
+    '',
+    `Mode: \`${mode}\``,
+    '',
+    plan.length > 0 ? planTable(plan) : 'No pending change intents.',
+  ];
   core.summary.addRaw(lines.join('\n'), true);
   await core.summary.write();
 };

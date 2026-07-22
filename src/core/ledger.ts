@@ -1,5 +1,7 @@
 import { parse } from 'yaml';
 
+import { asRecord } from './records.ts';
+
 export type LedgerEntry = {
   readonly name: string;
   readonly version: string;
@@ -19,17 +21,13 @@ export const parseLedger = (
 ): ReadonlyMap<string, LedgerEntry> => {
   const entries = new Map<string, LedgerEntry>();
   if (raw === null) return entries;
-  const parsed: unknown = parse(raw);
-  if (typeof parsed !== 'object' || parsed === null) return entries;
+  const parsed = asRecord(parse(raw));
+  if (parsed === null) return entries;
   for (const [key, value] of Object.entries(parsed)) {
     const split = splitKey(key);
     if (split === null) continue;
-    const dir =
-      typeof value === 'object' &&
-      value !== null &&
-      typeof (value as Record<string, unknown>).dir === 'string'
-        ? (value as { dir: string }).dir
-        : '.';
+    const dirValue = asRecord(value)?.dir;
+    const dir = typeof dirValue === 'string' ? dirValue : '.';
     entries.set(key, { name: split.name, version: split.version, dir });
   }
   return entries;
