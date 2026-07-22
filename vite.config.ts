@@ -18,6 +18,12 @@ export default defineConfig({
         plugins: [...(test.plugins ?? [])],
         rules: test.rules ?? {},
       },
+      {
+        // @actions/github の型は throttle ハンドラを void 扱いだが、throttling
+        // プラグインの実挙動は boolean の返り値でリトライ可否を判定する
+        files: ['src/gh/pr.ts'],
+        rules: { 'typescript/strict-void-return': 'off' },
+      },
     ],
   },
   pack: {

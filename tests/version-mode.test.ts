@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Inputs } from '../src/core/inputs.ts';
-import type { PrClient, PrRef } from '../src/gh/pr.ts';
+import type { GhClient, PrRef } from '../src/gh/pr.ts';
 import { currentRef } from '../src/git/repo.ts';
-import { runVersionMode } from '../src/main.ts';
+import { runVersionMode } from '../src/modes/version.ts';
 import { applyVersion } from '../src/pnpm/version.ts';
 import { initFixtureWorkspace, sh } from './helpers.ts';
 
@@ -39,9 +39,9 @@ type RecordedCalls = {
 
 const makeFakeClient = (
   existing: PrRef | null,
-): { client: PrClient; calls: RecordedCalls } => {
+): { client: GhClient; calls: RecordedCalls } => {
   const calls: RecordedCalls = { created: [], updated: [] };
-  const client: PrClient = {
+  const client: GhClient = {
     resolveBotUserId: () => Promise.resolve(1),
     findOpenPr: () => Promise.resolve(existing),
     createPr: (params) => {
@@ -52,6 +52,8 @@ const makeFakeClient = (
       calls.updated.push(params);
       return Promise.resolve();
     },
+    hasRelease: () => Promise.resolve(false),
+    createRelease: () => Promise.resolve(),
   };
   return { client, calls };
 };
