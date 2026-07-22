@@ -1,8 +1,9 @@
 import { getOctokit } from '@actions/github';
+import { throttling } from '@octokit/plugin-throttling';
 
 export type PrRef = { readonly number: number; readonly nodeId: string };
 
-export type PrClient = {
+export type GhClient = {
   readonly resolveBotUserId: (slug: string) => Promise<number>;
   readonly findOpenPr: (params: {
     head: string;
@@ -19,14 +20,40 @@ export type PrClient = {
     title: string;
     body: string;
   }) => Promise<void>;
+  readonly hasRelease: (tag: string) => Promise<boolean>;
+  readonly createRelease: (params: {
+    tag: string;
+    body: string;
+    prerelease: boolean;
+  }) => Promise<void>;
 };
 
-export const createPrClient = (
+// @actions/github の型はハンドラを void 扱いだが、throttling プラグインは boolean の
+// 返り値でリトライ可否を判定する（実挙動に合わせて boolean を返す）
+const retryTwice = (
+  _retryAfter: number,
+  _options: unknown,
+  _octokit: unknown,
+  retryCount: number,
+): boolean => retryCount < 2;
+
+export const createGhClient = (
   token: string,
   owner: string,
   repo: string,
-): PrClient => {
-  const octokit = getOctokit(token);
+): GhClient => {
+  // 大きい monorepo の Release 連続作成は secondary rate limit を踏みやすいので
+  // throttling プラグインで 2 回まで自動リトライする
+  const octokit = getOctokit(
+    token,
+    {
+      throttle: {
+        onRateLimit: retryTwice,
+        onSecondaryRateLimit: retryTwice,
+      },
+    },
+    throttling,
+  );
   return {
     resolveBotUserId: async (slug: string): Promise<number> => {
       const { data } = await octokit.rest.users.getByUsername({
@@ -69,6 +96,25 @@ export const createPrClient = (
         }`,
         { id: nodeId, title, body },
       );
+    },
+    hasRelease: async (tag: string): Promise<boolean> => {
+      try {
+        await octokit.rest.repos.getReleaseByTag({ owner, repo, tag });
+        return true;
+      } catch (error) {
+        if ((error as { status?: number }).status === 404) return false;
+        throw error;
+      }
+    },
+    createRelease: async ({ tag, body, prerelease }): Promise<void> => {
+      await octokit.rest.repos.createRelease({
+        owner,
+        repo,
+        tag_name: tag,
+        name: tag,
+        body,
+        prerelease,
+      });
     },
   };
 };

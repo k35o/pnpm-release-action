@@ -19,14 +19,25 @@ export const sh = async (
 // git リポジトリのルート（subdir 指定時はサブディレクトリ）に単一パッケージの
 // pnpm workspace を作る。返り値は workspace のパス。
 export const initFixtureWorkspace = async (
-  options: { storage?: 'repository'; subdir?: string } = {},
+  options: {
+    storage?: 'repository';
+    subdir?: string;
+    version?: string;
+    private?: boolean;
+  } = {},
 ): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), 'pra-fixture-'));
   const dir = options.subdir === undefined ? root : join(root, options.subdir);
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, 'package.json'),
-    JSON.stringify({ name: 'fixture-pkg', version: '0.1.0' }),
+    JSON.stringify({
+      name: 'fixture-pkg',
+      version: options.version ?? '0.1.0',
+      // mise 等の per-directory 解決でも常に同じ pnpm を掴む（PATH 漏れに依存しない）
+      packageManager: 'pnpm@11.15.1',
+      ...(options.private === true ? { private: true } : {}),
+    }),
   );
   await writeFile(
     join(dir, 'pnpm-workspace.yaml'),

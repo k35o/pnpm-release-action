@@ -7,8 +7,6 @@ import {
   type ChangelogPreview,
   extractVersionSection,
 } from '../core/changelog.ts';
-import type { PlanEntry } from '../core/plan.ts';
-
 type ChangelogStorage = 'registry' | 'repository';
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -16,19 +14,34 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
-export const readChangelogStorage = async (
+const readWorkspaceConfig = async (
   cwd: string,
-): Promise<ChangelogStorage> => {
+): Promise<Record<string, unknown> | null> => {
   let raw: string;
   try {
     raw = await readFile(join(cwd, 'pnpm-workspace.yaml'), 'utf8');
   } catch {
-    return 'registry';
+    return null;
   }
+  return asRecord(parse(raw));
+};
+
+export const readChangelogStorage = async (
+  cwd: string,
+): Promise<ChangelogStorage> => {
   const changelog = asRecord(
-    asRecord(asRecord(parse(raw))?.versioning)?.changelog,
+    asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.changelog,
   );
   return changelog?.storage === 'repository' ? 'repository' : 'registry';
+};
+
+// MVP は lane 非対応（内蔵 publish に dist-tag 指定手段が無い）。設定を検出
+// したら publish モードで warning を出すための判定
+export const hasLanesConfigured = async (cwd: string): Promise<boolean> => {
+  const lanes = asRecord(
+    asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.lanes,
+  );
+  return lanes !== null && Object.keys(lanes).length > 0;
 };
 
 // ledger.yaml は "name@version" -> { dir, intents } の committed な台帳。
@@ -59,7 +72,7 @@ const parkedFileName = (name: string, version: string): string =>
 
 export const collectChangelogPreviews = async (
   cwd: string,
-  plan: readonly PlanEntry[],
+  plan: ReadonlyArray<{ readonly name: string; readonly newVersion: string }>,
 ): Promise<ChangelogPreview[]> => {
   const storage = await readChangelogStorage(cwd);
   if (storage === 'registry') {

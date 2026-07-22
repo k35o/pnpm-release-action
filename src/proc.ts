@@ -14,11 +14,12 @@ export const runCommand = async (
   cwd: string,
   command: string,
   args: readonly string[],
-  options: { readonly label?: string } = {},
+  options: { readonly label?: string; readonly stream?: boolean } = {},
 ): Promise<string> => {
   const { exitCode, stdout, stderr } = await getExecOutput(command, [...args], {
     cwd,
-    silent: true,
+    // stream: build や publish のようにユーザーがログを追いたいコマンドはそのまま流す
+    silent: options.stream !== true,
     ignoreReturnCode: true,
   });
   if (exitCode !== 0) {
