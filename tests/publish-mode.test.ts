@@ -53,7 +53,8 @@ const makeFakeClient = (
       return Promise.resolve();
     },
     resetBranch: () => Promise.resolve(),
-    commitOnBranch: () => Promise.resolve(),
+    commitOnBranch: () => Promise.resolve('NEWSHA'),
+    deleteBranch: () => Promise.resolve(),
     enableAutoMerge: () => Promise.resolve(),
   };
   return { client, releases };
