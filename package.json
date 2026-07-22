@@ -28,7 +28,6 @@
     "@actions/exec": "3.0.0",
     "@actions/github": "9.1.1",
     "@k8o/oxc-config": "0.2.0",
-    "@octokit/plugin-throttling": "11.0.3",
     "@types/node": "24.13.3",
     "typescript": "7.0.2",
     "vite-plus": "0.2.4",

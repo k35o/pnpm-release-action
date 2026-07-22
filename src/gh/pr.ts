@@ -1,5 +1,4 @@
 import { getOctokit } from '@actions/github';
-import { throttling } from '@octokit/plugin-throttling';
 
 export type PrRef = { readonly number: number; readonly nodeId: string };
 
@@ -43,32 +42,14 @@ export type GhClient = {
   }) => Promise<void>;
 };
 
-// @actions/github の型はハンドラを void 扱いだが、throttling プラグインは boolean の
-// 返り値でリトライ可否を判定する（実挙動に合わせて boolean を返す）
-const retryTwice = (
-  _retryAfter: number,
-  _options: unknown,
-  _octokit: unknown,
-  retryCount: number,
-): boolean => retryCount < 2;
-
 export const createGhClient = (
   token: string,
   owner: string,
   repo: string,
 ): GhClient => {
-  // 大きい monorepo の Release 連続作成は secondary rate limit を踏みやすいので
-  // throttling プラグインで 2 回まで自動リトライする
-  const octokit = getOctokit(
-    token,
-    {
-      throttle: {
-        onRateLimit: retryTwice,
-        onSecondaryRateLimit: retryTwice,
-      },
-    },
-    throttling,
-  );
+  // rate limit リトライは持たない: Release 作成は直列で件数も高々パッケージ数、
+  // 万一 limit に当たっても再実行が冪等に収束する。依存を増やさない方を優先
+  const octokit = getOctokit(token);
   return {
     resolveBotUserId: async (slug: string): Promise<number> => {
       const { data } = await octokit.rest.users.getByUsername({
