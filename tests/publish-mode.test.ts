@@ -29,6 +29,8 @@ const makeInputs = (cwd: string): Inputs => ({
   createGithubReleases: true,
   pushGitTags: true,
   modeWhenClean: 'publish',
+  commitMode: 'git-cli',
+  autoMerge: false,
   syncLockfile: false,
   allowPrereleaseOnLatest: false,
   githubToken: 'dummy-token',
@@ -50,6 +52,9 @@ const makeFakeClient = (
       releases.push(params);
       return Promise.resolve();
     },
+    resetBranch: () => Promise.resolve(),
+    commitOnBranch: () => Promise.resolve(),
+    enableAutoMerge: () => Promise.resolve(),
   };
   return { client, releases };
 };

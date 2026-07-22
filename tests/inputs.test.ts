@@ -1,5 +1,6 @@
 import {
   InputError,
+  detectIgnoredGitUserInputs,
   detectTokenMismatch,
   parseInputs,
 } from '../src/core/inputs.ts';
@@ -23,10 +24,12 @@ describe('defaults', () => {
       baseBranch: 'main',
       branchPrefix: 'pnpm-release/',
       cwd: '.',
-      gitUser: { kind: 'actions-bot' },
+      gitUser: { kind: 'keep' },
       createGithubReleases: true,
       pushGitTags: true,
       modeWhenClean: 'publish',
+      commitMode: 'github-api',
+      autoMerge: false,
       syncLockfile: true,
       allowPrereleaseOnLatest: false,
       githubToken: 'ghs_dummy',
@@ -77,6 +80,8 @@ describe('explicit values', () => {
         'INPUT_CREATE-GITHUB-RELEASES': 'false',
         'INPUT_PUSH-GIT-TAGS': 'false',
         'INPUT_MODE-WHEN-CLEAN': 'none',
+        'INPUT_COMMIT-MODE': 'git-cli',
+        'INPUT_AUTO-MERGE': 'true',
         'INPUT_SYNC-LOCKFILE': 'false',
         'INPUT_ALLOW-PRERELEASE-ON-LATEST': 'true',
       }),
@@ -90,27 +95,71 @@ describe('explicit values', () => {
     expect(inputs.createGithubReleases).toBe(false);
     expect(inputs.pushGitTags).toBe(false);
     expect(inputs.modeWhenClean).toBe('none');
+    expect(inputs.commitMode).toBe('git-cli');
+    expect(inputs.autoMerge).toBe(true);
     expect(inputs.syncLockfile).toBe(false);
     expect(inputs.allowPrereleaseOnLatest).toBe(true);
   });
 
   test('setup-git-user false keeps the ambient git config', () => {
-    const inputs = parseInputs(env({ 'INPUT_SETUP-GIT-USER': 'false' }));
+    const inputs = parseInputs(
+      env({ 'INPUT_SETUP-GIT-USER': 'false', 'INPUT_COMMIT-MODE': 'git-cli' }),
+    );
     expect(inputs.gitUser).toStrictEqual({ kind: 'keep' });
   });
 
   test('setup-git-user accepts the same casings as other booleans', () => {
     expect(
-      parseInputs(env({ 'INPUT_SETUP-GIT-USER': 'True' })).gitUser,
+      parseInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'True', 'INPUT_COMMIT-MODE': 'git-cli' }),
+      ).gitUser,
     ).toStrictEqual({ kind: 'actions-bot' });
     expect(
-      parseInputs(env({ 'INPUT_SETUP-GIT-USER': 'FALSE' })).gitUser,
+      parseInputs(
+        env({
+          'INPUT_SETUP-GIT-USER': 'FALSE',
+          'INPUT_COMMIT-MODE': 'git-cli',
+        }),
+      ).gitUser,
     ).toStrictEqual({ kind: 'keep' });
   });
 
   test('a matching GITHUB_TOKEN env variable is accepted', () => {
     const inputs = parseInputs(env({ GITHUB_TOKEN: 'ghs_dummy' }));
     expect(inputs.githubToken).toBe('ghs_dummy');
+  });
+});
+
+describe('detectIgnoredGitUserInputs', () => {
+  test('warns when git-user inputs linger in github-api mode', () => {
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'app', 'INPUT_APP-SLUG': 'k35o-bot' }),
+        'github-api',
+      ),
+    ).toMatch(/ignored/u);
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'bot' }),
+        'github-api',
+      ),
+    ).toMatch(/ignored/u);
+  });
+
+  test('stays silent for defaults and for git-cli mode', () => {
+    expect(detectIgnoredGitUserInputs(env(), 'github-api')).toBeNull();
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'true' }),
+        'github-api',
+      ),
+    ).toBeNull();
+    expect(
+      detectIgnoredGitUserInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'app', 'INPUT_APP-SLUG': 'k35o-bot' }),
+        'git-cli',
+      ),
+    ).toBeNull();
   });
 });
 
@@ -132,27 +181,39 @@ describe('detectTokenMismatch', () => {
 
 describe('validation errors', () => {
   test('rejects an unknown setup-git-user value', () => {
-    expect(() => parseInputs(env({ 'INPUT_SETUP-GIT-USER': 'bot' }))).toThrow(
-      /setup-git-user/u,
-    );
+    expect(() =>
+      parseInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'bot', 'INPUT_COMMIT-MODE': 'git-cli' }),
+      ),
+    ).toThrow(/setup-git-user/u);
   });
 
   test('rejects setup-git-user app without app-slug', () => {
-    expect(() => parseInputs(env({ 'INPUT_SETUP-GIT-USER': 'app' }))).toThrow(
-      /app-slug/u,
-    );
+    expect(() =>
+      parseInputs(
+        env({ 'INPUT_SETUP-GIT-USER': 'app', 'INPUT_COMMIT-MODE': 'git-cli' }),
+      ),
+    ).toThrow(/app-slug/u);
   });
 
   test('rejects app-slug without setup-git-user app', () => {
-    expect(() => parseInputs(env({ 'INPUT_APP-SLUG': 'k35o-bot' }))).toThrow(
-      /setup-git-user: app/u,
-    );
+    expect(() =>
+      parseInputs(
+        env({ 'INPUT_APP-SLUG': 'k35o-bot', 'INPUT_COMMIT-MODE': 'git-cli' }),
+      ),
+    ).toThrow(/setup-git-user: app/u);
   });
 
   test('rejects an unknown mode-when-clean value', () => {
     expect(() =>
       parseInputs(env({ 'INPUT_MODE-WHEN-CLEAN': 'version' })),
     ).toThrow(/mode-when-clean/u);
+  });
+
+  test('rejects an unknown commit-mode value', () => {
+    expect(() => parseInputs(env({ 'INPUT_COMMIT-MODE': 'api' }))).toThrow(
+      /commit-mode/u,
+    );
   });
 
   test('rejects a non-boolean sync-lockfile value', () => {

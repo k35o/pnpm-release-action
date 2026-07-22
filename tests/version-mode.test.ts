@@ -27,6 +27,8 @@ const makeInputs = (cwd: string): Inputs => ({
   createGithubReleases: true,
   pushGitTags: true,
   modeWhenClean: 'publish',
+  commitMode: 'git-cli',
+  autoMerge: false,
   syncLockfile: false,
   allowPrereleaseOnLatest: false,
   githubToken: 'dummy-token',
@@ -35,12 +37,27 @@ const makeInputs = (cwd: string): Inputs => ({
 type RecordedCalls = {
   created: Array<{ head: string; base: string; title: string; body: string }>;
   updated: Array<{ nodeId: string; title: string; body: string }>;
+  resets: Array<{ branch: string; sha: string }>;
+  commits: Array<{
+    branch: string;
+    expectedHeadOid: string;
+    message: string;
+    additions: ReadonlyArray<{ path: string; contents: string }>;
+    deletions: ReadonlyArray<{ path: string }>;
+  }>;
+  autoMerged: Array<{ nodeId: string; number: number }>;
 };
 
 const makeFakeClient = (
   existing: PrRef | null,
 ): { client: GhClient; calls: RecordedCalls } => {
-  const calls: RecordedCalls = { created: [], updated: [] };
+  const calls: RecordedCalls = {
+    created: [],
+    updated: [],
+    resets: [],
+    commits: [],
+    autoMerged: [],
+  };
   const client: GhClient = {
     resolveBotUserId: () => Promise.resolve(1),
     findOpenPr: () => Promise.resolve(existing),
@@ -54,6 +71,18 @@ const makeFakeClient = (
     },
     hasRelease: () => Promise.resolve(false),
     createRelease: () => Promise.resolve(),
+    resetBranch: (params) => {
+      calls.resets.push(params);
+      return Promise.resolve();
+    },
+    commitOnBranch: (params) => {
+      calls.commits.push(params);
+      return Promise.resolve();
+    },
+    enableAutoMerge: (params) => {
+      calls.autoMerged.push(params);
+      return Promise.resolve();
+    },
   };
   return { client, calls };
 };
@@ -115,6 +144,80 @@ test('an empty apply returns empty-apply without touching the PR API', async () 
   expect(calls.created).toHaveLength(0);
   expect(calls.updated).toHaveLength(0);
   expect(await currentRef(dir)).toBe('main');
+});
+
+test('github-api mode commits via the API with signed-commit file changes', async () => {
+  const dir = await initFixtureWorkspace({ storage: 'repository' });
+  const origin = await addOrigin(dir);
+  const { client, calls } = makeFakeClient(null);
+
+  const result = await runVersionMode(
+    { ...makeInputs(dir), commitMode: 'github-api' },
+    client,
+  );
+
+  expect(result).toBe('completed');
+  // ブランチはトリガー SHA に API でリセットされる
+  expect(calls.resets).toHaveLength(1);
+  expect(calls.resets[0]?.branch).toBe('pnpm-release/main');
+  expect(calls.commits).toHaveLength(1);
+  const commit = calls.commits[0];
+  expect(commit?.expectedHeadOid).toBe(calls.resets[0]?.sha);
+  const additionPaths = commit?.additions.map((entry) => entry.path);
+  expect(additionPaths).toContain('package.json');
+  expect(additionPaths).toContain('CHANGELOG.md');
+  expect(additionPaths).toContain('.changeset/ledger.yaml');
+  // repository storage は intent を即削除するので deletions に載る
+  expect(commit?.deletions).toStrictEqual([
+    { path: '.changeset/fixture-intent.md' },
+  ]);
+  // contents は base64 で、適用後のバージョンを含む
+  const manifest = commit?.additions.find(
+    (entry) => entry.path === 'package.json',
+  );
+  expect(
+    Buffer.from(String(manifest?.contents), 'base64').toString('utf8'),
+  ).toContain('"version":"0.2.0"');
+  // API モードでは git push しない: origin にブランチは存在しない
+  await expect(
+    sh(origin, 'git', ['rev-parse', 'refs/heads/pnpm-release/main']),
+  ).rejects.toThrow(/exit code/u);
+  expect(await currentRef(dir)).toBe('main');
+  // 適用結果はローカルに残さない（後続 step にとって base ブランチは clean）
+  expect(await sh(dir, 'git', ['status', '--porcelain'])).toBe('');
+});
+
+test('github-api mode sends root-relative paths for subdirectory workspaces', async () => {
+  const dir = await initFixtureWorkspace({
+    storage: 'repository',
+    subdir: 'workspace',
+  });
+  await addOrigin(dir);
+  const { client, calls } = makeFakeClient(null);
+
+  await runVersionMode(
+    { ...makeInputs(dir), commitMode: 'github-api' },
+    client,
+  );
+
+  const additionPaths = calls.commits[0]?.additions.map((entry) => entry.path);
+  expect(additionPaths).toContain('workspace/package.json');
+  expect(calls.commits[0]?.deletions).toStrictEqual([
+    { path: 'workspace/.changeset/fixture-intent.md' },
+  ]);
+});
+
+test('auto-merge is armed on the created release PR', async () => {
+  const dir = await initFixtureWorkspace();
+  await addOrigin(dir);
+  const { client, calls } = makeFakeClient(null);
+
+  await runVersionMode(
+    { ...makeInputs(dir), commitMode: 'github-api', autoMerge: true },
+    client,
+  );
+
+  expect(calls.autoMerged).toStrictEqual([{ nodeId: 'NODE5', number: 5 }]);
 });
 
 test('a dirty tree aborts before any branch or PR work', async () => {

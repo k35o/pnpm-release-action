@@ -25,6 +25,21 @@ export const checkout = async (cwd: string, ref: string): Promise<void> => {
 export const statusPorcelain = (cwd: string): Promise<string> =>
   git(cwd, ['status', '--porcelain']);
 
+export const repoToplevel = (cwd: string): Promise<string> =>
+  git(cwd, ['rev-parse', '--show-toplevel']);
+
+// 追跡ファイルの変更を戻し、未追跡の生成物を消す（呼び出し元が clean 開始を保証）
+export const restoreCleanTree = async (cwd: string): Promise<void> => {
+  await git(cwd, ['reset', '--hard']);
+  await git(cwd, ['clean', '-fd']);
+};
+
+// NUL 区切りをそのまま返す（trim すると経路情報を壊しうるので git() を通さない）。
+// -uall: 未追跡ディレクトリを丸めず個別ファイルで列挙する（ディレクトリの
+// エントリを readFile すると EISDIR になる）
+export const statusPorcelainZ = (cwd: string): Promise<string> =>
+  runCommand(cwd, 'git', ['status', '--porcelain', '-z', '-uall']);
+
 // version モードは `git add -A` でコミットするため、事前にツリーが汚れていると
 // 無関係な変更をリリース PR に巻き込む。検出用 worktree は常に無垢で気づけないので、
 // ここで名指しで止める

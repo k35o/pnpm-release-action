@@ -5,6 +5,8 @@ export type GitUserSetup =
 
 export type ModeWhenClean = 'publish' | 'none';
 
+export type CommitMode = 'github-api' | 'git-cli';
+
 export type Inputs = {
   readonly build: string | null;
   readonly commitMessage: string;
@@ -16,6 +18,8 @@ export type Inputs = {
   readonly createGithubReleases: boolean;
   readonly pushGitTags: boolean;
   readonly modeWhenClean: ModeWhenClean;
+  readonly commitMode: CommitMode;
+  readonly autoMerge: boolean;
   readonly syncLockfile: boolean;
   readonly allowPrereleaseOnLatest: boolean;
   readonly githubToken: string;
@@ -116,6 +120,30 @@ const parseModeWhenClean = (env: Env, issues: string[]): ModeWhenClean => {
   return 'publish';
 };
 
+const parseCommitMode = (env: Env, issues: string[]): CommitMode => {
+  const raw = rawInput(env, 'commit-mode') || 'github-api';
+  if (raw === 'github-api' || raw === 'git-cli') return raw;
+  issues.push(
+    `\`commit-mode\` must be \`github-api\` or \`git-cli\`, got \`${raw}\``,
+  );
+  return 'github-api';
+};
+
+// github-api モードでは setup-git-user/app-slug は使われない。設定されたまま残って
+// いる（移行の名残・typo 含む）場合に黙殺せず、無視される旨を warning で知らせる
+export const detectIgnoredGitUserInputs = (
+  env: Env,
+  commitMode: CommitMode,
+): string | null => {
+  if (commitMode !== 'github-api') return null;
+  const setupGitUser = rawInput(env, 'setup-git-user');
+  const appSlug = rawInput(env, 'app-slug');
+  if ((setupGitUser === '' || setupGitUser === 'true') && appSlug === '') {
+    return null;
+  }
+  return '`setup-git-user` and `app-slug` are ignored with `commit-mode: github-api`: the commit identity comes from the token (remove them, or set `commit-mode: git-cli`)';
+};
+
 // hard error にすると「昇格トークンを github-token に渡し、他ステップの gh CLI 用に
 // GITHUB_TOKEN env はデフォルトのまま」という正当な構成（本アクションの推奨レシピ）を
 // 弾いてしまうため、不一致は warning 止まりにする
@@ -136,8 +164,13 @@ export const detectTokenMismatch = (
 export const parseInputs = (env: Env): Inputs => {
   const issues: string[] = detectLegacyInputs(env);
 
-  const gitUser = parseGitUser(env, issues);
   const modeWhenClean = parseModeWhenClean(env, issues);
+  const commitMode = parseCommitMode(env, issues);
+  const autoMerge = parseBoolean(env, 'auto-merge', false, issues);
+  // github-api モードではコミット identity はトークン主体から決まり git 設定を
+  // 使わないため、setup-git-user/app-slug の検証は git-cli のときだけ行う
+  const gitUser: GitUserSetup =
+    commitMode === 'git-cli' ? parseGitUser(env, issues) : { kind: 'keep' };
   // どちらかの真偽値が壊れているときに相関チェックを走らせると、fallback 値由来の
   // 偽の指摘（または本物の見逃し）になるため、両方 parse できたときだけ検査する
   const issuesBeforeToggles = issues.length;
@@ -196,6 +229,8 @@ export const parseInputs = (env: Env): Inputs => {
     createGithubReleases,
     pushGitTags,
     modeWhenClean,
+    commitMode,
+    autoMerge,
     syncLockfile,
     allowPrereleaseOnLatest,
     githubToken,

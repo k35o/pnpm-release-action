@@ -16962,14 +16962,29 @@ const parseModeWhenClean = (env, issues) => {
 	issues.push(`\`mode-when-clean\` must be \`publish\` or \`none\`, got \`${raw}\``);
 	return "publish";
 };
+const parseCommitMode = (env, issues) => {
+	const raw = rawInput(env, "commit-mode") || "github-api";
+	if (raw === "github-api" || raw === "git-cli") return raw;
+	issues.push(`\`commit-mode\` must be \`github-api\` or \`git-cli\`, got \`${raw}\``);
+	return "github-api";
+};
+const detectIgnoredGitUserInputs = (env, commitMode) => {
+	if (commitMode !== "github-api") return null;
+	const setupGitUser = rawInput(env, "setup-git-user");
+	const appSlug = rawInput(env, "app-slug");
+	if ((setupGitUser === "" || setupGitUser === "true") && appSlug === "") return null;
+	return "`setup-git-user` and `app-slug` are ignored with `commit-mode: github-api`: the commit identity comes from the token (remove them, or set `commit-mode: git-cli`)";
+};
 const detectTokenMismatch = (env, githubToken) => {
 	if (env.GITHUB_TOKEN !== void 0 && env.GITHUB_TOKEN !== "" && env.GITHUB_TOKEN !== githubToken) return "the `GITHUB_TOKEN` environment variable is set but differs from the `github-token` input: this action only uses the input";
 	return null;
 };
 const parseInputs = (env) => {
 	const issues = detectLegacyInputs(env);
-	const gitUser = parseGitUser(env, issues);
 	const modeWhenClean = parseModeWhenClean(env, issues);
+	const commitMode = parseCommitMode(env, issues);
+	const autoMerge = parseBoolean(env, "auto-merge", false, issues);
+	const gitUser = commitMode === "git-cli" ? parseGitUser(env, issues) : { kind: "keep" };
 	const issuesBeforeToggles = issues.length;
 	const createGithubReleases = parseBoolean(env, "create-github-releases", true, issues);
 	const pushGitTags = parseBoolean(env, "push-git-tags", true, issues);
@@ -16994,6 +17009,8 @@ const parseInputs = (env) => {
 		createGithubReleases,
 		pushGitTags,
 		modeWhenClean,
+		commitMode,
+		autoMerge,
 		syncLockfile,
 		allowPrereleaseOnLatest,
 		githubToken
@@ -21848,6 +21865,67 @@ const createGhClient = (token, owner, repo) => {
 				body,
 				prerelease
 			});
+		},
+		resetBranch: async ({ branch, sha }) => {
+			try {
+				await octokit.rest.git.updateRef({
+					owner,
+					repo,
+					ref: `heads/${branch}`,
+					sha,
+					force: true
+				});
+			} catch (error) {
+				const { status } = error;
+				if (status !== 404 && status !== 422) throw error;
+				try {
+					await octokit.rest.git.createRef({
+						owner,
+						repo,
+						ref: `refs/heads/${branch}`,
+						sha
+					});
+				} catch {
+					throw error;
+				}
+			}
+		},
+		commitOnBranch: async ({ branch, expectedHeadOid, message, additions, deletions }) => {
+			await octokit.graphql(`mutation($input: CreateCommitOnBranchInput!) {
+          createCommitOnBranch(input: $input) { commit { oid } }
+        }`, { input: {
+				branch: {
+					repositoryNameWithOwner: `${owner}/${repo}`,
+					branchName: branch
+				},
+				expectedHeadOid,
+				message: { headline: message },
+				fileChanges: {
+					additions: [...additions],
+					deletions: [...deletions]
+				}
+			} });
+		},
+		enableAutoMerge: async ({ nodeId, number }) => {
+			try {
+				await octokit.graphql(`mutation($id: ID!) {
+            enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: MERGE }) {
+              pullRequest { number }
+            }
+          }`, { id: nodeId });
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				if (/is in (?:clean|unstable) status/u.test(message)) {
+					await octokit.rest.pulls.merge({
+						owner,
+						repo,
+						pull_number: number,
+						merge_method: "merge"
+					});
+					return;
+				}
+				throw error;
+			}
 		}
 	};
 };
@@ -28545,6 +28623,17 @@ const checkout = async (cwd, ref) => {
 	await git(cwd, ["checkout", ref]);
 };
 const statusPorcelain = (cwd) => git(cwd, ["status", "--porcelain"]);
+const repoToplevel = (cwd) => git(cwd, ["rev-parse", "--show-toplevel"]);
+const restoreCleanTree = async (cwd) => {
+	await git(cwd, ["reset", "--hard"]);
+	await git(cwd, ["clean", "-fd"]);
+};
+const statusPorcelainZ = (cwd) => runCommand(cwd, "git", [
+	"status",
+	"--porcelain",
+	"-z",
+	"-uall"
+]);
 const assertCleanTree = async (cwd) => {
 	const status = await statusPorcelain(cwd);
 	if (status !== "") {
@@ -28952,6 +29041,37 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 	await appendStepSummary(published, targets);
 };
 //#endregion
+//#region src/core/file-changes.ts
+const parsePorcelain = (raw) => {
+	const additions = [];
+	const deletions = [];
+	const entries = raw.split("\0");
+	for (let index = 0; index < entries.length; index += 1) {
+		const entry = entries[index];
+		if (entry === void 0 || entry.length < 4) continue;
+		const status = new Set(entry.slice(0, 2));
+		const path = entry.slice(3);
+		if (status.has("R") || status.has("C")) {
+			additions.push(path);
+			const oldPath = entries[index + 1];
+			if (oldPath !== void 0 && oldPath !== "") {
+				if (status.has("R")) deletions.push(oldPath);
+				index += 1;
+			}
+			continue;
+		}
+		if (status.has("D")) {
+			deletions.push(path);
+			continue;
+		}
+		additions.push(path);
+	}
+	return {
+		additions,
+		deletions
+	};
+};
+//#endregion
 //#region src/core/pr-body.ts
 const MAX_BODY_LENGTH = 6e4;
 const HEADER = "Merging this PR releases the packages below. Versions and changelogs were computed by [pnpm's release management](https://pnpm.io/versioning); the PR is maintained by [pnpm-release-action](https://github.com/k35o/pnpm-release-action) and rebuilt on every push to the base branch.";
@@ -29056,12 +29176,42 @@ const syncLockfile = async (cwd) => {
 };
 //#endregion
 //#region src/modes/version.ts
+const MAX_API_COMMIT_BYTES = 30 * 1024 * 1024;
+const commitViaApi = async (inputs, client, branch, triggerSha, toplevel) => {
+	const changes = parsePorcelain(await statusPorcelainZ(toplevel));
+	if (changes.additions.length === 0 && changes.deletions.length === 0) {
+		info("Nothing to commit: the release plan produced no file changes.");
+		return;
+	}
+	const additions = await Promise.all(changes.additions.map(async (path) => ({
+		path,
+		contents: (await readFile(join(toplevel, path))).toString("base64")
+	})));
+	const payloadBytes = additions.reduce((sum, entry) => sum + entry.contents.length, 0);
+	if (payloadBytes > MAX_API_COMMIT_BYTES) throw new Error(`the version commit is too large for the GitHub API (${String(Math.round(payloadBytes / 1024 / 1024))} MiB encoded): set \`commit-mode: git-cli\``);
+	await client.resetBranch({
+		branch,
+		sha: triggerSha
+	});
+	await client.commitOnBranch({
+		branch,
+		expectedHeadOid: triggerSha,
+		message: inputs.commitMessage,
+		additions,
+		deletions: changes.deletions.map((path) => ({ path }))
+	});
+};
+const commitViaGit = async (inputs, branch) => {
+	if (!await commitAll(inputs.cwd, inputs.commitMessage)) info("Nothing to commit: the release branch is already up to date.");
+	await forcePush(inputs.cwd, branch, inputs.githubToken);
+};
 const runVersionMode = async (inputs, client) => {
-	await configureIdentity(inputs.cwd, inputs.gitUser, client.resolveBotUserId);
+	if (inputs.commitMode === "git-cli") await configureIdentity(inputs.cwd, inputs.gitUser, client.resolveBotUserId);
 	await assertCleanTree(inputs.cwd);
 	const branch = `${inputs.branchPrefix}${inputs.baseBranch}`;
 	const triggerSha = await revParseHead(inputs.cwd);
 	const originalRef = await currentRef(inputs.cwd);
+	const toplevel = await repoToplevel(inputs.cwd);
 	await rebuildBranch(inputs.cwd, branch, triggerSha);
 	try {
 		const plan = await applyVersion(inputs.cwd);
@@ -29072,27 +29222,40 @@ const runVersionMode = async (inputs, client) => {
 			head: branch,
 			base: inputs.baseBranch
 		});
-		if (!await commitAll(inputs.cwd, inputs.commitMessage)) info("Nothing to commit: the release branch is already up to date.");
-		await forcePush(inputs.cwd, branch, inputs.githubToken);
+		if (inputs.commitMode === "github-api") await commitViaApi(inputs, client, branch, triggerSha, toplevel);
+		else await commitViaGit(inputs, branch);
 		let prNumber;
-		if (existing === null) prNumber = (await client.createPr({
-			head: branch,
-			base: inputs.baseBranch,
-			title: inputs.prTitle,
-			body
-		})).number;
-		else {
+		let prNodeId;
+		if (existing === null) {
+			const created = await client.createPr({
+				head: branch,
+				base: inputs.baseBranch,
+				title: inputs.prTitle,
+				body
+			});
+			prNumber = created.number;
+			prNodeId = created.nodeId;
+		} else {
 			await client.updatePr({
 				nodeId: existing.nodeId,
 				title: inputs.prTitle,
 				body
 			});
 			prNumber = existing.number;
+			prNodeId = existing.nodeId;
 		}
 		setOutput("pr-number", String(prNumber));
+		if (inputs.autoMerge) {
+			await client.enableAutoMerge({
+				nodeId: prNodeId,
+				number: prNumber
+			});
+			info(`Auto-merge is armed on release PR #${String(prNumber)}.`);
+		}
 		info(`Release PR #${String(prNumber)} is ready.`);
 		return "completed";
 	} finally {
+		if (inputs.commitMode === "github-api") await restoreCleanTree(toplevel).catch(() => void 0);
 		await checkout(inputs.cwd, originalRef).catch(() => void 0);
 	}
 };
@@ -29177,6 +29340,8 @@ const run = async () => {
 		setSecret(inputs.githubToken);
 		const tokenWarning = detectTokenMismatch(process.env, inputs.githubToken);
 		if (tokenWarning !== null) warning(tokenWarning);
+		const gitUserWarning = detectIgnoredGitUserInputs(process.env, inputs.commitMode);
+		if (gitUserWarning !== null) warning(gitUserWarning);
 		info(`Using pnpm ${await assertPnpmVersion(inputs.cwd)}`);
 		plan = await detectPlan(inputs.cwd);
 		mode = decideMode(plan.length > 0, inputs.modeWhenClean);
