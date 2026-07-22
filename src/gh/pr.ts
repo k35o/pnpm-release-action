@@ -3,6 +3,8 @@ import { getOctokit } from '@actions/github';
 export type PrRef = { readonly number: number; readonly nodeId: string };
 
 export type GhClient = {
+  readonly owner: string;
+  readonly repo: string;
   readonly resolveBotUserId: (slug: string) => Promise<number>;
   readonly findOpenPr: (params: {
     head: string;
@@ -43,6 +45,18 @@ export type GhClient = {
   }) => Promise<void>;
 };
 
+// enablePullRequestAutoMerge が「repo で auto-merge が無効」「PR が draft」など
+// 設定・状態で拒否したときのメッセージ。PR 自体は作れているので arming の失敗だけで
+// release run を落とさず warning に留めてよい範囲を判定する。権限やネットワーク等の
+// 想定外エラーは対象外にして fatal のまま扱う。
+const AUTO_MERGE_UNAVAILABLE: readonly RegExp[] = [
+  /not allowed for this repository/iu,
+  /draft/iu,
+];
+
+export const isAutoMergeUnavailable = (message: string): boolean =>
+  AUTO_MERGE_UNAVAILABLE.some((pattern) => pattern.test(message));
+
 export const createGhClient = (
   token: string,
   owner: string,
@@ -52,6 +66,8 @@ export const createGhClient = (
   // 万一 limit に当たっても再実行が冪等に収束する。依存を増やさない方を優先
   const octokit = getOctokit(token);
   return {
+    owner,
+    repo,
     resolveBotUserId: async (slug: string): Promise<number> => {
       const { data } = await octokit.rest.users.getByUsername({
         username: `${slug}[bot]`,

@@ -6,6 +6,7 @@ import * as core from '@actions/core';
 import { parsePorcelain } from '../core/file-changes.ts';
 import type { Inputs } from '../core/inputs.ts';
 import { composePrBody } from '../core/pr-body.ts';
+import { isAutoMergeUnavailable } from '../gh/pr.ts';
 import type { GhClient } from '../gh/pr.ts';
 import {
   assertCleanTree,
@@ -85,6 +86,28 @@ const commitViaGit = async (inputs: Inputs, branch: string): Promise<void> => {
   await forcePush(inputs.cwd, branch, inputs.githubToken);
 };
 
+// repo 設定や PR 状態で arming だけが不可能なケースは、release PR は既に作れている
+// ので run を失敗させず warning で直し方を示す。想定外のエラーは fatal のまま流す。
+const armAutoMerge = async (
+  client: GhClient,
+  nodeId: string,
+  number: number,
+): Promise<void> => {
+  try {
+    await client.enableAutoMerge({ nodeId, number });
+    core.info(`Auto-merge is armed on release PR #${String(number)}.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!isAutoMergeUnavailable(message)) throw error;
+    core.warning(
+      `Auto-merge could not be armed on release PR #${String(number)}: ${message}. ` +
+        'Enable auto-merge for this repository (Settings → General → "Allow auto-merge", ' +
+        `or run \`gh api repos/${client.owner}/${client.repo} -X PATCH -F allow_auto_merge=true\`), ` +
+        'or set `auto-merge: false`. The release PR is ready to merge manually.',
+    );
+  }
+};
+
 export const runVersionMode = async (
   inputs: Inputs,
   client: GhClient,
@@ -146,8 +169,7 @@ export const runVersionMode = async (
     // arming が失敗しても PR 自体は存在するので、出力を先に確定させる
     core.setOutput('pr-number', String(prNumber));
     if (inputs.autoMerge) {
-      await client.enableAutoMerge({ nodeId: prNodeId, number: prNumber });
-      core.info(`Auto-merge is armed on release PR #${String(prNumber)}.`);
+      await armAutoMerge(client, prNodeId, prNumber);
     }
     core.info(`Release PR #${String(prNumber)} is ready.`);
     return 'completed';
