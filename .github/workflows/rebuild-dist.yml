@@ -1,0 +1,71 @@
+name: Rebuild dist
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+# The push uses the App token from the checkout step, so GITHUB_TOKEN stays read-only
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    name: Rebuild dist
+    if: startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The App-token push retriggers this workflow on synchronize; stop the loop
+      # before minting a token or checking anything out
+      - name: Check for a rebuild loop
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          message=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}" --jq .commit.message)
+          if [ "$message" = "chore: rebuild dist for updated dependencies" ]; then
+            echo "HEAD is already a rebuild commit; skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate token
+        id: app-token
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.K35O_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.K35O_BOT_PRIVATE_KEY }}
+
+      - name: Checkout branch
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install
+        if: steps.guard.outputs.skip != 'true'
+        uses: ./.github/composite-actions/install
+
+      - name: Build
+        if: steps.guard.outputs.skip != 'true'
+        run: pnpm build
+
+      - name: Commit and push dist
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- dist; then
+            echo "dist/ is up to date; nothing to push."
+            exit 0
+          fi
+          user_id=$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git add dist
+          git commit -m "chore: rebuild dist for updated dependencies"
+          git push origin "HEAD:refs/heads/${HEAD_REF}"
