@@ -20465,9 +20465,13 @@ function getOctokit(token, options, ...additionalPlugins) {
 }
 //#endregion
 //#region src/gh/pr.ts
+const AUTO_MERGE_UNAVAILABLE = [/not allowed for this repository/iu, /draft/iu];
+const isAutoMergeUnavailable = (message) => AUTO_MERGE_UNAVAILABLE.some((pattern) => pattern.test(message));
 const createGhClient = (token, owner, repo) => {
 	const octokit = getOctokit(token);
 	return {
+		owner,
+		repo,
 		resolveBotUserId: async (slug) => {
 			const { data } = await octokit.rest.users.getByUsername({ username: `${slug}[bot]` });
 			return data.id;
@@ -27895,6 +27899,19 @@ const commitViaGit = async (inputs, branch) => {
 	if (!await commitAll(inputs.cwd, inputs.commitMessage)) info("Nothing to commit: the release branch is already up to date.");
 	await forcePush(inputs.cwd, branch, inputs.githubToken);
 };
+const armAutoMerge = async (client, nodeId, number) => {
+	try {
+		await client.enableAutoMerge({
+			nodeId,
+			number
+		});
+		info(`Auto-merge is armed on release PR #${String(number)}.`);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (!isAutoMergeUnavailable(message)) throw error;
+		warning(`Auto-merge could not be armed on release PR #${String(number)}: ${message}. Enable auto-merge for this repository (Settings → General → "Allow auto-merge", or run \`gh api repos/${client.owner}/${client.repo} -X PATCH -F allow_auto_merge=true\`), or set \`auto-merge: false\`. The release PR is ready to merge manually.`);
+	}
+};
 const runVersionMode = async (inputs, client) => {
 	if (inputs.commitMode === "git-cli") await configureIdentity(inputs.cwd, inputs.gitUser, client.resolveBotUserId);
 	await assertCleanTree(inputs.cwd);
@@ -27935,13 +27952,7 @@ const runVersionMode = async (inputs, client) => {
 			prNodeId = existing.nodeId;
 		}
 		setOutput("pr-number", String(prNumber));
-		if (inputs.autoMerge) {
-			await client.enableAutoMerge({
-				nodeId: prNodeId,
-				number: prNumber
-			});
-			info(`Auto-merge is armed on release PR #${String(prNumber)}.`);
-		}
+		if (inputs.autoMerge) await armAutoMerge(client, prNodeId, prNumber);
 		info(`Release PR #${String(prNumber)} is ready.`);
 		return "completed";
 	} finally {

@@ -51,6 +51,7 @@ type RecordedCalls = {
 
 const makeFakeClient = (
   existing: PrRef | null,
+  autoMergeError?: Error,
 ): { client: GhClient; calls: RecordedCalls } => {
   const calls: RecordedCalls = {
     created: [],
@@ -61,6 +62,8 @@ const makeFakeClient = (
     deletedBranches: [],
   };
   const client: GhClient = {
+    owner: 'k35o',
+    repo: 'better-css-modules',
     resolveBotUserId: () => Promise.resolve(1),
     findOpenPr: () => Promise.resolve(existing),
     createPr: (params) => {
@@ -87,7 +90,9 @@ const makeFakeClient = (
     },
     enableAutoMerge: (params) => {
       calls.autoMerged.push(params);
-      return Promise.resolve();
+      return autoMergeError === undefined
+        ? Promise.resolve()
+        : Promise.reject(autoMergeError);
     },
   };
   return { client, calls };
@@ -230,6 +235,56 @@ test('auto-merge is armed on the created release PR', async () => {
   );
 
   expect(calls.autoMerged).toStrictEqual([{ nodeId: 'NODE5', number: 5 }]);
+});
+
+test('a config-class auto-merge failure warns with guidance and still completes', async () => {
+  const dir = await initFixtureWorkspace();
+  await addOrigin(dir);
+  // better-css-modules で実際に踏んだケース: repo で Allow auto-merge が無効
+  const { client, calls } = makeFakeClient(
+    null,
+    new Error('Auto merge is not allowed for this repository'),
+  );
+  const logs: string[] = [];
+  const write = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation((chunk) => {
+      logs.push(String(chunk));
+      return true;
+    });
+
+  try {
+    const result = await runVersionMode(
+      { ...makeInputs(dir), commitMode: 'github-api', autoMerge: true },
+      client,
+    );
+
+    expect(result).toBe('completed');
+    expect(calls.autoMerged).toHaveLength(1);
+    const warning = logs.find((line) => line.startsWith('::warning::'));
+    expect(warning).toContain('Auto merge is not allowed for this repository');
+    expect(warning).toContain(
+      'gh api repos/k35o/better-css-modules -X PATCH -F allow_auto_merge=true',
+    );
+  } finally {
+    write.mockRestore();
+  }
+});
+
+test('an unexpected auto-merge failure stays fatal', async () => {
+  const dir = await initFixtureWorkspace();
+  await addOrigin(dir);
+  const { client } = makeFakeClient(
+    null,
+    new Error('Resource not accessible by integration'),
+  );
+
+  await expect(
+    runVersionMode(
+      { ...makeInputs(dir), commitMode: 'github-api', autoMerge: true },
+      client,
+    ),
+  ).rejects.toThrow(/Resource not accessible by integration/u);
 });
 
 test('a dirty tree aborts before any branch or PR work', async () => {

@@ -43,6 +43,8 @@ const makeFakeClient = (
 ): { client: GhClient; releases: ReleaseCalls } => {
   const releases: ReleaseCalls = [];
   const client: GhClient = {
+    owner: 'k35o',
+    repo: 'better-css-modules',
     resolveBotUserId: () => Promise.resolve(1),
     findOpenPr: () => Promise.resolve(null),
     createPr: () => Promise.resolve({ number: 1, nodeId: 'N' }),
