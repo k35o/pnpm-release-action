@@ -6,3 +6,7 @@ pnpm-release-action@0.1.0:
     - publish-mode
     - self-release
     - version-pr-mode
+pnpm-release-action@0.1.1:
+  dir: ""
+  intents:
+    - bundled-deps-update

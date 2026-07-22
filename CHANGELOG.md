@@ -1,5 +1,11 @@
 # pnpm-release-action
 
+## 0.1.1
+
+### Patch Changes
+
+- Refresh the bundled dist with updated dependencies and adapt to the vite-plus 0.2.x toolchain (real vitest instead of the discontinued @voidzero-dev companion overrides).
+
 ## 0.1.0
 
 ### Minor Changes
