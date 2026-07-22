@@ -4,7 +4,7 @@ GitHub Action for [pnpm's built-in release management](https://pnpm.io/versionin
 
 pnpm owns the hard parts — change intents (`pnpm change`), the release plan with propagation/fixed/epic semantics (`pnpm version -r`), the ledger, changelogs, and publish selection. This action owns the layer pnpm deliberately leaves to CI: git commits, branches, pull requests, tags, and GitHub Releases. It has zero semver logic and zero `@changesets/*` dependencies.
 
-> **Status: pre-release.** The API below is implemented and tested, but nothing is tagged yet — pin to a commit SHA once the first release is out.
+> Prefer pinning to a full commit SHA with a version comment (Renovate keeps both in sync); the floating `v0` tag also exists for convenience.
 
 ## How it works
 
@@ -33,17 +33,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/create-github-app-token@<sha> # v3
+      - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         id: app-token
         with:
           client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: actions/checkout@<sha> # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
       # install pnpm >= 11.13.0 here (pnpm/action-setup, mise, ...)
-      - uses: k35o/pnpm-release-action@<sha> # pin a release once one exists
+      - uses: k35o/pnpm-release-action@9c884985ac053e708a8ef66738cd93d288efb096 # v0.1.0
         with:
           build: pnpm build
           github-token: ${{ steps.app-token.outputs.token }}
