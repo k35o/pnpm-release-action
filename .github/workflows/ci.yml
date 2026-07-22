@@ -23,6 +23,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # publish モードは build 後の dirty tree を止めるため、コミット済み dist が
+      # 古いままだとリリースが失敗する。マージ前にここで検出する
+      - name: Ensure dist/ is up to date
+        run: git diff --exit-code -- dist
+
       - name: Run check (fmt + lint)
         run: pnpm check
 

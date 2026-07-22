@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+# PR 作成・タグ push・checkout は全て App token 側で行うため、GITHUB_TOKEN は read で足りる
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          client-id: ${{ secrets.K35O_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.K35O_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install
+        uses: ./.github/composite-actions/install
+
+      # このリポジトリ自身が最初のユーザー: 推奨レシピそのものを毎リリースで実地検証する
+      - name: Release
+        id: release
+        uses: ./
+        with:
+          build: pnpm build
+          github-token: ${{ steps.app-token.outputs.token }}
+          setup-git-user: app
+          app-slug: ${{ steps.app-token.outputs.app-slug }}
+
+      # v<version> タグが HEAD を指しているとき（= このランで publish された）だけ
+      # フローティングメジャータグを追従させる。Release は付けず、immutable releases
+      # とはバージョンタグ側で両立させる
+      - name: Update the floating major tag
+        if: steps.release.outputs.mode == 'publish'
+        run: |
+          version=$(jq -r .version package.json)
+          if [ "$(git rev-parse -q --verify "refs/tags/v${version}" || true)" = "$(git rev-parse HEAD)" ]; then
+            major="v${version%%.*}"
+            git tag -f "$major" "refs/tags/v${version}"
+            git push origin "+refs/tags/${major}"
+          else
+            echo "No release at HEAD; skipping the floating tag update."
+          fi
