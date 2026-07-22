@@ -16,3 +16,7 @@ pnpm-release-action@0.2.1:
   dir: ""
   intents:
     - drop-throttling-plugin
+pnpm-release-action@0.2.2:
+  dir: ""
+  intents:
+    - auto-merge-arming
