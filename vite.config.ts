@@ -4,11 +4,13 @@ import { defineConfig } from 'vite-plus';
 export default defineConfig({
   fmt: {
     ...fmt,
-    ignorePatterns: ['CHANGELOG.md', 'dist'],
+    // CHANGELOG.md と .changeset/（ledger.yaml 等）は pnpm が生成・所有する
+    // ファイルなので、こちらの整形規則を当てない
+    ignorePatterns: ['CHANGELOG.md', '.changeset', 'dist'],
   },
   lint: {
     extends: [typescript],
-    ignorePatterns: ['CHANGELOG.md', 'dist'],
+    ignorePatterns: ['CHANGELOG.md', '.changeset', 'dist'],
     options: {
       typeAware: true,
     },
