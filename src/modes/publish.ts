@@ -3,14 +3,16 @@ import { readFile } from 'node:fs/promises';
 import * as core from '@actions/core';
 
 import type { Inputs } from '../core/inputs.ts';
+import { releaseKey } from '../core/keys.ts';
 import { diffLedger, parseLedger } from '../core/ledger.ts';
 import type { LedgerEntry } from '../core/ledger.ts';
+import { publishedTable } from '../core/markdown.ts';
 import {
   buildReleaseTargets,
   findPrereleaseLeaks,
 } from '../core/publish-plan.ts';
 import type { ReleaseTarget } from '../core/publish-plan.ts';
-import type { GhClient } from '../gh/pr.ts';
+import type { GhClient } from '../gh/client.ts';
 import {
   commitExists,
   createTag,
@@ -110,11 +112,12 @@ const guardPrereleases = (
   const leaks = findPrereleaseLeaks(packages);
   if (leaks.length === 0) return;
   const releasedKeys = new Set(
-    released.map((entry) => `${entry.name}@${entry.version}`),
+    released.map((entry) => releaseKey(entry.name, entry.version)),
   );
   const inRelease = leaks.filter(
     (pkg) =>
-      pkg.version !== null && releasedKeys.has(`${pkg.name}@${pkg.version}`),
+      pkg.version !== null &&
+      releasedKeys.has(releaseKey(pkg.name, pkg.version)),
   );
   const outside = leaks.filter((pkg) => !inRelease.includes(pkg));
   if (inRelease.length > 0 && !allow) {
@@ -142,24 +145,19 @@ const appendStepSummary = async (
   targets: readonly ReleaseTarget[],
 ): Promise<void> => {
   if (process.env.GITHUB_STEP_SUMMARY === undefined) return;
-  const lines = ['### Published', ''];
-  if (published.length === 0) {
-    lines.push('_No packages were published to the registry._');
-  } else {
-    lines.push(
-      '| Package | Version |',
-      '| --- | --- |',
-      ...published.map((pkg) => `| \`${pkg.name}\` | ${pkg.version} |`),
-    );
-  }
-  lines.push(
+  const lines = [
+    '### Published',
+    '',
+    published.length === 0
+      ? '_No packages were published to the registry._'
+      : publishedTable(published),
     '',
     '### Tags / Releases',
     '',
     targets.length === 0
       ? '_None._'
       : targets.map((target) => `- \`${target.tag}\``).join('\n'),
-  );
+  ];
   core.summary.addRaw(lines.join('\n'), true);
   await core.summary.write();
 };
@@ -250,14 +248,14 @@ export const runPublishMode = async (
   if (inputs.createGithubReleases) {
     const sectionFor = new Map(
       previews.map((preview) => [
-        `${preview.name}@${preview.newVersion}`,
+        releaseKey(preview.name, preview.newVersion),
         preview.section,
       ]),
     );
     // summary 由来で ledger に無い対象（手動バンプ等）にもフォールバック連鎖を試す。
     // registry storage の parked は GC 済みかもしれないが、CHANGELOG.md は残る
     const uncovered = targets.filter(
-      (target) => !sectionFor.has(`${target.name}@${target.version}`),
+      (target) => !sectionFor.has(releaseKey(target.name, target.version)),
     );
     if (uncovered.length > 0) {
       const extra = await collectChangelogPreviews(
@@ -269,7 +267,7 @@ export const runPublishMode = async (
       );
       for (const preview of extra) {
         sectionFor.set(
-          `${preview.name}@${preview.newVersion}`,
+          releaseKey(preview.name, preview.newVersion),
           preview.section,
         );
       }
@@ -280,7 +278,7 @@ export const runPublishMode = async (
       const exists = await client.hasRelease(target.tag);
       if (exists) continue;
       const section =
-        sectionFor.get(`${target.name}@${target.version}`) ?? null;
+        sectionFor.get(releaseKey(target.name, target.version)) ?? null;
       if (section === null) {
         core.warning(
           `No changelog entry was found for ${target.name}@${target.version}: creating the release with a minimal body.`,

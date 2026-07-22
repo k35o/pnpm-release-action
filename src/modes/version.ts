@@ -6,8 +6,8 @@ import * as core from '@actions/core';
 import { parsePorcelain } from '../core/file-changes.ts';
 import type { Inputs } from '../core/inputs.ts';
 import { composePrBody } from '../core/pr-body.ts';
-import { isAutoMergeUnavailable } from '../gh/pr.ts';
-import type { GhClient } from '../gh/pr.ts';
+import { isAutoMergeUnavailable } from '../gh/client.ts';
+import type { GhClient } from '../gh/client.ts';
 import {
   assertCleanTree,
   checkout,

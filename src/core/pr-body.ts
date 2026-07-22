@@ -1,4 +1,6 @@
 import type { ChangelogPreview } from './changelog.ts';
+import { releaseKey } from './keys.ts';
+import { planTable } from './markdown.ts';
 import type { PlanEntry } from './plan.ts';
 
 // GitHub の PR body 上限は 65,536 文字。安全側の 60,000 で2段階に切り詰める。
@@ -6,16 +8,6 @@ const MAX_BODY_LENGTH = 60_000;
 
 const HEADER =
   "Merging this PR releases the packages below. Versions and changelogs were computed by [pnpm's release management](https://pnpm.io/versioning); the PR is maintained by [pnpm-release-action](https://github.com/k35o/pnpm-release-action) and rebuilt on every push to the base branch.";
-
-const planTable = (plan: readonly PlanEntry[]): string =>
-  [
-    '| Package | From | To |',
-    '| --- | --- | --- |',
-    ...plan.map(
-      (entry) =>
-        `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`,
-    ),
-  ].join('\n');
 
 // parked された changelog セクションは "## <version>" 見出しから始まるが、
 // パッケージごとの見出しはこちらで付けるため、重複する先頭行だけ取り除く
@@ -43,7 +35,7 @@ export const composePrBody = (
 ): string => {
   const sections = new Map(
     previews.map((preview) => [
-      `${preview.name}@${preview.newVersion}`,
+      releaseKey(preview.name, preview.newVersion),
       preview.section,
     ]),
   );
@@ -55,7 +47,7 @@ export const composePrBody = (
         withBodies
           ? packageBlock(
               entry,
-              sections.get(`${entry.name}@${entry.newVersion}`) ?? null,
+              sections.get(releaseKey(entry.name, entry.newVersion)) ?? null,
             )
           : packageHeading(entry),
       ),

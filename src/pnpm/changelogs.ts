@@ -5,12 +5,10 @@ import { parse } from 'yaml';
 
 import { extractVersionSection } from '../core/changelog.ts';
 import type { ChangelogPreview } from '../core/changelog.ts';
-type ChangelogStorage = 'registry' | 'repository';
+import { releaseKey } from '../core/keys.ts';
+import { asRecord } from '../core/records.ts';
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : null;
+type ChangelogStorage = 'registry' | 'repository';
 
 const readWorkspaceConfig = async (
   cwd: string,
@@ -96,7 +94,7 @@ export const collectChangelogPreviews = async (
   const dirs = await readLedgerDirs(cwd);
   return Promise.all(
     plan.map(async ({ name, newVersion }): Promise<ChangelogPreview> => {
-      const dir = dirs.get(`${name}@${newVersion}`);
+      const dir = dirs.get(releaseKey(name, newVersion));
       if (dir === undefined) return { name, newVersion, section: null };
       try {
         const changelog = await readFile(

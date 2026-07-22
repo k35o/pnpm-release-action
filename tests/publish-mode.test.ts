@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Inputs } from '../src/core/inputs.ts';
-import type { GhClient } from '../src/gh/pr.ts';
+import type { GhClient } from '../src/gh/client.ts';
 import { runPublishMode } from '../src/modes/publish.ts';
 import { applyVersion } from '../src/pnpm/version.ts';
 import { initFixtureWorkspace, sh } from './helpers.ts';

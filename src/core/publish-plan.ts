@@ -1,3 +1,5 @@
+import { releaseKey } from './keys.ts';
+
 export type PublishedPackage = {
   readonly name: string;
   readonly version: string;
@@ -39,7 +41,7 @@ export const buildReleaseTargets = (
   const seen = new Set<string>();
   const targets: ReleaseTarget[] = [];
   for (const { name, version } of [...published, ...ledgerNew]) {
-    const key = `${name}@${version}`;
+    const key = releaseKey(name, version);
     if (seen.has(key)) continue;
     seen.add(key);
     targets.push({
