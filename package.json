@@ -30,7 +30,7 @@
     "@k8o/oxc-config": "0.2.0",
     "@types/node": "24.13.3",
     "typescript": "7.0.2",
-    "vite-plus": "0.2.4",
+    "vite-plus": "0.2.5",
     "yaml": "2.9.0"
   },
   "engines": {
