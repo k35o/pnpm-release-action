@@ -18,8 +18,8 @@ importers:
         specifier: 9.1.1
         version: 9.1.1
       '@k8o/oxc-config':
-        specifier: 0.2.0
-        version: 0.2.0(oxfmt@0.58.0(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))(oxlint-tsgolint@0.24.0)(oxlint@1.73.0(oxlint-tsgolint@0.24.0)(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))
+        specifier: 0.2.1
+        version: 0.2.1(oxfmt@0.58.0(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))(oxlint-tsgolint@0.24.0)(oxlint@1.73.0(oxlint-tsgolint@0.24.0)(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -80,8 +80,8 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
-  '@k8o/oxc-config@0.2.0':
-    resolution: {integrity: sha512-St/+lVPD09+8aboM1Eu3uXohTUkTWa+NoxVkHrxL06tAI56E/E7BfB2y5XJaPnBCGwosfFzOy+8rM0jKBxeciQ==}
+  '@k8o/oxc-config@0.2.1':
+    resolution: {integrity: sha512-2r9T1LnEhL2P3nfEJVeuam9aTc4UeiyTUCyo5xqgfP5DpydXwp7Q5m58K9k8yilJorWbxrOg3f+W2wI+8wXg6w==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       eslint-plugin-playwright: '>=2.0.0'
@@ -1438,7 +1438,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@k8o/oxc-config@0.2.0(oxfmt@0.58.0(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))(oxlint-tsgolint@0.24.0)(oxlint@1.73.0(oxlint-tsgolint@0.24.0)(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))':
+  '@k8o/oxc-config@0.2.1(oxfmt@0.58.0(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))(oxlint-tsgolint@0.24.0)(oxlint@1.73.0(oxlint-tsgolint@0.24.0)(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0)))':
     optionalDependencies:
       oxfmt: 0.58.0(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0))
       oxlint: 1.73.0(oxlint-tsgolint@0.24.0)(vite-plus@0.2.5(@types/node@24.13.3)(typescript@7.0.2)(vite@8.1.5(@types/node@24.13.3)(yaml@2.9.0))(yaml@2.9.0))
