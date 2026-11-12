@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { parsePorcelain } from '../src/core/file-changes.ts';
 
 const NUL = '\0';

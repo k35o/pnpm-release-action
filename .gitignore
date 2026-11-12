@@ -9,3 +9,4 @@ coverage
 .vscode/*
 !.vscode/extensions.json
 settings.local.json
+.vitest/

@@ -1,6 +1,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { describe, expect, test } from 'vite-plus/test';
+
 import { collectChangelogPreviews } from '../src/pnpm/changelogs.ts';
 import { applyVersion, detectPlan } from '../src/pnpm/version.ts';
 import { initFixtureWorkspace, sh } from './helpers.ts';

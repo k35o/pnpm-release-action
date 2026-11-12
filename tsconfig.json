@@ -22,7 +22,7 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "vite-plus/test/globals"]
+    "types": ["node"]
   },
   "include": ["src/**/*", "tests/**/*", "vite.config.ts"]
 }

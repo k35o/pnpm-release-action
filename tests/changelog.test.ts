@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { extractVersionSection } from '../src/core/changelog.ts';
 
 const changelog = [

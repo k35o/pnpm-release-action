@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { PlanParseError, parsePlanOutput } from '../src/core/plan.ts';
 
 test('parses the observed JSON array shape', () => {

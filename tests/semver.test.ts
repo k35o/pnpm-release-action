@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { satisfiesMinimum } from '../src/core/semver.ts';
 
 test('the floor itself satisfies the minimum', () => {

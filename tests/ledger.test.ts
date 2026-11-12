@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { diffLedger, parseLedger } from '../src/core/ledger.ts';
 
 const raw = [

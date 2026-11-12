@@ -13,6 +13,10 @@ verifyDepsBeforeRun: install
 
 saveExact: true
 autoInstallPeers: false
+# vite-plus は vite を @voidzero-dev/vite-plus-core の別名で持つため、vitest の peer 範囲と版番号が合わない
+peerDependencyRules:
+  allowAny:
+    - vite
 
 versioning:
   changelog:
