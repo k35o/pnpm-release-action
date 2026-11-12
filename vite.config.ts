@@ -31,7 +31,6 @@ export default defineConfig({
     unbundle: false,
   },
   test: {
-    globals: true,
     include: ['tests/**/*.test.ts'],
   },
   staged: {

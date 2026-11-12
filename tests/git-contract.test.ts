@@ -2,6 +2,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { expect, test } from 'vite-plus/test';
+
 import {
   assertCleanTree,
   checkout,

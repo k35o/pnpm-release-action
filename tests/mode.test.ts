@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { decideMode } from '../src/core/mode.ts';
 
 test('a pending plan always means version-PR mode', () => {

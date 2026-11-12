@@ -2,6 +2,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { beforeAll, expect, test, vi } from 'vite-plus/test';
+
 import type { Inputs } from '../src/core/inputs.ts';
 import type { GhClient, PrRef } from '../src/gh/client.ts';
 import { currentRef } from '../src/git/repo.ts';

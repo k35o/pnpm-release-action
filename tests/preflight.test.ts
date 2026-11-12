@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { PreflightError, assertPnpmVersion } from '../src/pnpm/preflight.ts';
 
 test('resolves the pnpm version in a valid cwd', async () => {

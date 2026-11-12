@@ -1,3 +1,5 @@
+import { expect, test } from 'vite-plus/test';
+
 import { composePrBody } from '../src/core/pr-body.ts';
 
 const plan = [
