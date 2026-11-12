@@ -28326,7 +28326,7 @@ const satisfiesMinimum = (version, minimum) => {
 	return !actual.prerelease;
 };
 // src/pnpm/preflight.ts
-const MIN_PNPM_VERSION = "11.13.0";
+const MIN_PNPM_VERSION = "12.7.0";
 var PreflightError = class extends Error {
 	constructor(message, options) {
 		super(message, options);
@@ -28344,7 +28344,7 @@ const assertPnpmVersion = async (cwd) => {
 		throw new PreflightError(`failed to run \`pnpm --version\`: ${error instanceof Error ? error.message : String(error)} — make sure pnpm is installed before this action (e.g. pnpm/action-setup or mise) and \`cwd\` points at the workspace`, { cause: error });
 	}
 	const version = stdout.trim();
-	if (!satisfiesMinimum(version, "11.13.0")) throw new PreflightError(`pnpm ${version} is too old: built-in release management needs pnpm >= ${MIN_PNPM_VERSION}`);
+	if (!satisfiesMinimum(version, "12.7.0")) throw new PreflightError(`pnpm ${version} is too old: built-in release management needs pnpm >= ${MIN_PNPM_VERSION}`);
 	return version;
 };
 // src/main.ts

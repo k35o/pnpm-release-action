@@ -1,6 +1,6 @@
 # pnpm-release-action
 
-GitHub Action for [pnpm's built-in release management](https://pnpm.io/versioning) (pnpm 11.13+): opens a release PR from pending change intents, then publishes to npm, pushes tags, and creates GitHub Releases when the PR merges.
+GitHub Action for [pnpm's built-in release management](https://pnpm.io/versioning) (pnpm 12.7+): opens a release PR from pending change intents, then publishes to npm, pushes tags, and creates GitHub Releases when the PR merges.
 
 pnpm owns the hard parts — change intents (`pnpm change`), the release plan with propagation/fixed/epic semantics (`pnpm version -r`), the ledger, changelogs, and publish selection. This action owns the layer pnpm deliberately leaves to CI: git commits, branches, pull requests, tags, and GitHub Releases. It has zero semver logic and zero `@changesets/*` dependencies.
 
@@ -44,7 +44,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-      # install pnpm >= 11.13.0 here (pnpm/action-setup, mise, ...)
+      # install pnpm >= 12.7.0 here (pnpm/action-setup, mise, ...)
       - uses: k35o/pnpm-release-action@9c884985ac053e708a8ef66738cd93d288efb096 # v0.1.0
         with:
           build: pnpm build
@@ -89,7 +89,7 @@ changesets/action input names (`publish`, `setupGitUser`, …) are intentionally
 
 ## Requirements
 
-- pnpm **>= 11.13.0** on `PATH` before this action runs
+- pnpm **>= 12.7.0** on `PATH` before this action runs
 - `actions/checkout` with **`fetch-depth: 0`** (the release plan and released set need history)
 - npm auth via **OIDC trusted publishing** (nothing to configure here), or an `NPM_TOKEN` env var for the classic flow
 - A clean working tree: steps that generate uncommitted files belong after this action
