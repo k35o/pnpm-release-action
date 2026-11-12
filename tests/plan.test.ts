@@ -12,17 +12,15 @@ test('parses the observed JSON array shape', () => {
   ]);
 });
 
-test('treats the no-pending-changes text as an empty plan', () => {
-  expect(
-    parsePlanOutput('No pending changes. Record one with "pnpm change".\n'),
-  ).toStrictEqual([]);
-  expect(parsePlanOutput('')).toStrictEqual([]);
+test('parses an empty array as an empty plan', () => {
+  expect(parsePlanOutput('[]\n')).toStrictEqual([]);
 });
 
 test('fails loudly on unrecognized output', () => {
   expect(() => parsePlanOutput('something else entirely')).toThrow(
     PlanParseError,
   );
+  expect(() => parsePlanOutput('')).toThrow(PlanParseError);
   expect(() => parsePlanOutput('[broken')).toThrow(PlanParseError);
   expect(() => parsePlanOutput('[{"name":1}]')).toThrow(PlanParseError);
   expect(() => parsePlanOutput('{"not":"an array"}')).toThrow(PlanParseError);

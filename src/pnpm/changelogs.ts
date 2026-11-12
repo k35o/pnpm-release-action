@@ -8,8 +8,6 @@ import type { ChangelogPreview } from '../core/changelog.ts';
 import { releaseKey } from '../core/keys.ts';
 import { asRecord } from '../core/records.ts';
 
-type ChangelogStorage = 'registry' | 'repository';
-
 const readWorkspaceConfig = async (
   cwd: string,
 ): Promise<Record<string, unknown> | null> => {
@@ -22,15 +20,6 @@ const readWorkspaceConfig = async (
   return asRecord(parse(raw));
 };
 
-export const readChangelogStorage = async (
-  cwd: string,
-): Promise<ChangelogStorage> => {
-  const changelog = asRecord(
-    asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.changelog,
-  );
-  return changelog?.storage === 'repository' ? 'repository' : 'registry';
-};
-
 // MVP は lane 非対応（内蔵 publish に dist-tag 指定手段が無い）。設定を検出
 // したら publish モードで warning を出すための判定
 export const hasLanesConfigured = async (cwd: string): Promise<boolean> => {
@@ -41,7 +30,7 @@ export const hasLanesConfigured = async (cwd: string): Promise<boolean> => {
 };
 
 // ledger.yaml は "name@version" -> { dir, intents } の committed な台帳。
-// repository storage で CHANGELOG.md の場所を知るのに dir を使う。
+// CHANGELOG.md の場所を知るのに dir を使う。
 const readLedgerDirs = async (
   cwd: string,
 ): Promise<ReadonlyMap<string, string>> => {
@@ -61,54 +50,61 @@ const readLedgerDirs = async (
   return dirs;
 };
 
+const readFileOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
 // registry storage の parked ファイル名はパッケージ名の '/' を '!' に置換した
 // "<name>@<version>.md"（実測: @scope/pkg -> "@scope!pkg@1.0.0.md"）
-const parkedFileName = (name: string, version: string): string =>
-  `${name.replaceAll('/', '!')}@${version}.md`;
+const readParkedSection = async (
+  cwd: string,
+  name: string,
+  version: string,
+): Promise<string | null> => {
+  const parked = await readFileOrNull(
+    join(
+      cwd,
+      '.changeset',
+      'changelogs',
+      `${name.replaceAll('/', '!')}@${version}.md`,
+    ),
+  );
+  return parked === null ? null : parked.trim();
+};
 
+const readCommittedSection = async (
+  cwd: string,
+  dir: string | undefined,
+  version: string,
+): Promise<string | null> => {
+  if (dir === undefined) return null;
+  const changelog = await readFileOrNull(join(cwd, dir, 'CHANGELOG.md'));
+  return changelog === null ? null : extractVersionSection(changelog, version);
+};
+
+// changelog の置き場は versioning.changelog.storage だけでは決まらない: registry
+// storage でも、公開先の無い private パッケージの分は CHANGELOG.md に直接書かれる。
+// 設定で分岐せず、parked を先に見て無ければ CHANGELOG.md を読む
 export const collectChangelogPreviews = async (
   cwd: string,
   plan: ReadonlyArray<{ readonly name: string; readonly newVersion: string }>,
 ): Promise<ChangelogPreview[]> => {
-  const storage = await readChangelogStorage(cwd);
-  if (storage === 'registry') {
-    return Promise.all(
-      plan.map(async ({ name, newVersion }): Promise<ChangelogPreview> => {
-        try {
-          const section = await readFile(
-            join(
-              cwd,
-              '.changeset',
-              'changelogs',
-              parkedFileName(name, newVersion),
-            ),
-            'utf8',
-          );
-          return { name, newVersion, section: section.trim() };
-        } catch {
-          return { name, newVersion, section: null };
-        }
-      }),
-    );
-  }
   const dirs = await readLedgerDirs(cwd);
   return Promise.all(
-    plan.map(async ({ name, newVersion }): Promise<ChangelogPreview> => {
-      const dir = dirs.get(releaseKey(name, newVersion));
-      if (dir === undefined) return { name, newVersion, section: null };
-      try {
-        const changelog = await readFile(
-          join(cwd, dir, 'CHANGELOG.md'),
-          'utf8',
-        );
-        return {
-          name,
+    plan.map(async ({ name, newVersion }): Promise<ChangelogPreview> => ({
+      name,
+      newVersion,
+      section:
+        (await readParkedSection(cwd, name, newVersion)) ??
+        (await readCommittedSection(
+          cwd,
+          dirs.get(releaseKey(name, newVersion)),
           newVersion,
-          section: extractVersionSection(changelog, newVersion),
-        };
-      } catch {
-        return { name, newVersion, section: null };
-      }
-    }),
+        )),
+    })),
   );
 };

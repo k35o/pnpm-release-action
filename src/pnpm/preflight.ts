@@ -2,7 +2,9 @@ import { getExecOutput } from '@actions/exec';
 
 import { satisfiesMinimum } from '../core/semver.ts';
 
-export const MIN_PNPM_VERSION = '11.13.0';
+// 12.7.0 より前の pnpm は private パッケージにもレジストリの公開確認を掛け、未公開
+// （private は常にそう）だと bump しない
+export const MIN_PNPM_VERSION = '12.7.0';
 
 export class PreflightError extends Error {
   constructor(message: string, options?: ErrorOptions) {

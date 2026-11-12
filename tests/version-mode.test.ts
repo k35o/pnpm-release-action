@@ -129,6 +129,21 @@ test('creates a release PR when none is open', async () => {
   expect(await currentRef(dir)).toBe('main');
 });
 
+test('a first release opens a PR that shows the package as unpublished', async () => {
+  const dir = await initFixtureWorkspace({ published: false });
+  await addOrigin(dir);
+  const { client, calls } = makeFakeClient(null);
+
+  const result = await runVersionMode(makeInputs(dir), client);
+
+  expect(result).toBe('completed');
+  expect(calls.created).toHaveLength(1);
+  expect(calls.created[0]?.body).toContain(
+    '| `fixture-pkg` | _unpublished_ | 0.1.0 |',
+  );
+  expect(calls.created[0]?.body).toContain('Add a fixture feature.');
+});
+
 test('updates the open release PR instead of creating a new one', async () => {
   const dir = await initFixtureWorkspace();
   await addOrigin(dir);

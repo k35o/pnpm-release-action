@@ -17338,10 +17338,11 @@ const parseInputs = (env) => {
 	};
 };
 // src/core/markdown.ts
+const fromVersion = (entry) => entry.currentVersion === entry.newVersion ? "_unpublished_" : entry.currentVersion;
 const planTable = (plan) => [
 	"| Package | From | To |",
 	"| --- | --- | --- |",
-	...plan.map((entry) => `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`)
+	...plan.map((entry) => `| \`${entry.name}\` | ${fromVersion(entry)} | ${entry.newVersion} |`)
 ].join("\n");
 const publishedTable = (published) => [
 	"| Package | Version |",
@@ -27835,9 +27836,6 @@ const readWorkspaceConfig = async (cwd) => {
 	}
 	return asRecord((0, import_dist.parse)(raw));
 };
-const readChangelogStorage = async (cwd) => {
-	return asRecord(asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.changelog)?.storage === "repository" ? "repository" : "registry";
-};
 const hasLanesConfigured = async (cwd) => {
 	const lanes = asRecord(asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.lanes);
 	return lanes !== null && Object.keys(lanes).length > 0;
@@ -27858,46 +27856,29 @@ const readLedgerDirs = async (cwd) => {
 	}
 	return dirs;
 };
-const parkedFileName = (name, version) => `${name.replaceAll("/", "!")}@${version}.md`;
+const readFileOrNull = async (path) => {
+	try {
+		return await readFile(path, "utf8");
+	} catch {
+		return null;
+	}
+};
+const readParkedSection = async (cwd, name, version) => {
+	const parked = await readFileOrNull(join(cwd, ".changeset", "changelogs", `${name.replaceAll("/", "!")}@${version}.md`));
+	return parked === null ? null : parked.trim();
+};
+const readCommittedSection = async (cwd, dir, version) => {
+	if (dir === void 0) return null;
+	const changelog = await readFileOrNull(join(cwd, dir, "CHANGELOG.md"));
+	return changelog === null ? null : extractVersionSection(changelog, version);
+};
 const collectChangelogPreviews = async (cwd, plan) => {
-	if (await readChangelogStorage(cwd) === "registry") return Promise.all(plan.map(async ({ name, newVersion }) => {
-		try {
-			return {
-				name,
-				newVersion,
-				section: (await readFile(join(cwd, ".changeset", "changelogs", parkedFileName(name, newVersion)), "utf8")).trim()
-			};
-		} catch {
-			return {
-				name,
-				newVersion,
-				section: null
-			};
-		}
-	}));
 	const dirs = await readLedgerDirs(cwd);
-	return Promise.all(plan.map(async ({ name, newVersion }) => {
-		const dir = dirs.get(releaseKey(name, newVersion));
-		if (dir === void 0) return {
-			name,
-			newVersion,
-			section: null
-		};
-		try {
-			const changelog = await readFile(join(cwd, dir, "CHANGELOG.md"), "utf8");
-			return {
-				name,
-				newVersion,
-				section: extractVersionSection(changelog, newVersion)
-			};
-		} catch {
-			return {
-				name,
-				newVersion,
-				section: null
-			};
-		}
-	}));
+	return Promise.all(plan.map(async ({ name, newVersion }) => ({
+		name,
+		newVersion,
+		section: await readParkedSection(cwd, name, newVersion) ?? await readCommittedSection(cwd, dirs.get(releaseKey(name, newVersion)), newVersion)
+	})));
 };
 // src/pnpm/publish.ts
 const listWorkspacePackages = async (cwd) => {
@@ -28155,15 +28136,11 @@ var PlanParseError = class extends Error {
 };
 const parsePlanOutput = (stdout) => {
 	const trimmed = stdout.trim();
-	if (!trimmed.startsWith("[")) {
-		if (trimmed === "" || trimmed.includes("No pending changes")) return [];
-		throw new PlanParseError(`unexpected \`pnpm version -r --json\` output (pnpm contract may have changed): ${trimmed.slice(0, 200)}`);
-	}
 	let parsed;
 	try {
 		parsed = JSON.parse(trimmed);
 	} catch (error) {
-		throw new PlanParseError(`\`pnpm version -r --json\` printed invalid JSON: ${trimmed.slice(0, 200)}`, { cause: error });
+		throw new PlanParseError(`unexpected \`pnpm version -r --json\` output (pnpm contract may have changed): ${trimmed.slice(0, 200)}`, { cause: error });
 	}
 	if (!Array.isArray(parsed)) throw new PlanParseError("expected a JSON array from `pnpm version -r --json`");
 	return parsed.map((entry, index) => {
@@ -28345,7 +28322,7 @@ const satisfiesMinimum = (version, minimum) => {
 	return !actual.prerelease;
 };
 // src/pnpm/preflight.ts
-const MIN_PNPM_VERSION = "11.13.0";
+const MIN_PNPM_VERSION = "12.7.0";
 var PreflightError = class extends Error {
 	constructor(message, options) {
 		super(message, options);
@@ -28363,7 +28340,7 @@ const assertPnpmVersion = async (cwd) => {
 		throw new PreflightError(`failed to run \`pnpm --version\`: ${error instanceof Error ? error.message : String(error)} — make sure pnpm is installed before this action (e.g. pnpm/action-setup or mise) and \`cwd\` points at the workspace`, { cause: error });
 	}
 	const version = stdout.trim();
-	if (!satisfiesMinimum(version, "11.13.0")) throw new PreflightError(`pnpm ${version} is too old: built-in release management needs pnpm >= ${MIN_PNPM_VERSION}`);
+	if (!satisfiesMinimum(version, "12.7.0")) throw new PreflightError(`pnpm ${version} is too old: built-in release management needs pnpm >= ${MIN_PNPM_VERSION}`);
 	return version;
 };
 // src/main.ts

@@ -20,6 +20,14 @@ test('renders the plan table and the changelog preview', () => {
   expect(body).not.toMatch(/^## 1\.1\.0$/mu);
 });
 
+test('shows a first release as unpublished instead of an unchanged version', () => {
+  const body = composePrBody(
+    [{ name: '@scope/pkg-a', currentVersion: '0.1.0', newVersion: '0.1.0' }],
+    [],
+  );
+  expect(body).toContain('| `@scope/pkg-a` | _unpublished_ | 0.1.0 |');
+});
+
 test('notes a missing changelog entry', () => {
   const body = composePrBody(plan, [
     { name: '@scope/pkg-a', newVersion: '1.1.0', section: null },

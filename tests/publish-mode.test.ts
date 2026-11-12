@@ -8,7 +8,7 @@ import type { Inputs } from '../src/core/inputs.ts';
 import type { GhClient } from '../src/gh/client.ts';
 import { runPublishMode } from '../src/modes/publish.ts';
 import { applyVersion } from '../src/pnpm/version.ts';
-import { initFixtureWorkspace, sh } from './helpers.ts';
+import { initFixtureWorkspace, sh, writeFixtureManifest } from './helpers.ts';
 
 beforeAll(async () => {
   const dir = await mkdtemp(join(tmpdir(), 'pra-out-'));
@@ -117,6 +117,20 @@ test('a rerun with the tag and release in place is a no-op', async () => {
   expect(second.releases).toHaveLength(0);
 });
 
+test('a first release is tagged at the manifest version', async () => {
+  const dir = await releasedFixture({ published: false });
+  const { client, releases } = makeFakeClient();
+
+  await runPublishMode(makeInputs(dir), client, dryRunPublish);
+
+  expect(releases).toHaveLength(1);
+  expect(releases[0]?.tag).toBe('v0.1.0');
+  expect(releases[0]?.body).toContain('Add a fixture feature.');
+  expect(await sh(dir, 'git', ['ls-remote', '--tags', 'origin'])).toContain(
+    'refs/tags/v0.1.0',
+  );
+});
+
 test('private packages are tagged via the ledger even though nothing publishes', async () => {
   const dir = await releasedFixture({ private: true });
   const { client, releases } = makeFakeClient();
@@ -126,6 +140,7 @@ test('private packages are tagged via the ledger even though nothing publishes',
   // publish は private をスキップし summary は空だが、ledger 差分がタグを補完する
   expect(releases).toHaveLength(1);
   expect(releases[0]?.tag).toBe('v0.2.0');
+  expect(releases[0]?.body).toContain('Add a fixture feature.');
   expect(await sh(dir, 'git', ['ls-remote', '--tags', 'origin'])).toContain(
     'refs/tags/v0.2.0',
   );
@@ -151,14 +166,7 @@ test('a prerelease in the released set aborts before publishing', async () => {
 test('a prerelease outside the released set warns instead of blocking', async () => {
   const dir = await releasedFixture();
   // 手動バンプ相当: ledger に無い prerelease が manifest に残っている
-  await writeFile(
-    join(dir, 'package.json'),
-    JSON.stringify({
-      name: 'fixture-pkg',
-      version: '9.9.9-beta.0',
-      packageManager: 'pnpm@11.15.1',
-    }),
-  );
+  await writeFixtureManifest(dir, { version: '9.9.9-beta.0' });
   await sh(dir, 'git', ['add', '-A']);
   await sh(dir, 'git', ['commit', '-q', '-m', 'manual prerelease bump']);
   const { client } = makeFakeClient();

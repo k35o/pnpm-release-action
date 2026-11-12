@@ -1,5 +1,13 @@
 import type { PlanEntry } from './plan.ts';
 
+// pnpm は現在の版がレジストリに無いパッケージを bump せず、その版のまま初回
+// リリースにする（currentVersion === newVersion）。版をそのまま並べると何も
+// 変わらないリリースに見えるため、From 側を未公開として示す
+const fromVersion = (entry: PlanEntry): string =>
+  entry.currentVersion === entry.newVersion
+    ? '_unpublished_'
+    : entry.currentVersion;
+
 // PR body と STEP_SUMMARY で共用するプラン表
 export const planTable = (plan: readonly PlanEntry[]): string =>
   [
@@ -7,7 +15,7 @@ export const planTable = (plan: readonly PlanEntry[]): string =>
     '| --- | --- | --- |',
     ...plan.map(
       (entry) =>
-        `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`,
+        `| \`${entry.name}\` | ${fromVersion(entry)} | ${entry.newVersion} |`,
     ),
   ].join('\n');
 
