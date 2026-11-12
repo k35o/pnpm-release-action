@@ -140,6 +140,7 @@ test('private packages are tagged via the ledger even though nothing publishes',
   // publish は private をスキップし summary は空だが、ledger 差分がタグを補完する
   expect(releases).toHaveLength(1);
   expect(releases[0]?.tag).toBe('v0.2.0');
+  expect(releases[0]?.body).toContain('Add a fixture feature.');
   expect(await sh(dir, 'git', ['ls-remote', '--tags', 'origin'])).toContain(
     'refs/tags/v0.2.0',
   );

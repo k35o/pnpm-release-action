@@ -27835,9 +27835,6 @@ const readWorkspaceConfig = async (cwd) => {
 	}
 	return asRecord((0, import_dist.parse)(raw));
 };
-const readChangelogStorage = async (cwd) => {
-	return asRecord(asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.changelog)?.storage === "repository" ? "repository" : "registry";
-};
 const hasLanesConfigured = async (cwd) => {
 	const lanes = asRecord(asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.lanes);
 	return lanes !== null && Object.keys(lanes).length > 0;
@@ -27858,46 +27855,29 @@ const readLedgerDirs = async (cwd) => {
 	}
 	return dirs;
 };
-const parkedFileName = (name, version) => `${name.replaceAll("/", "!")}@${version}.md`;
+const readFileOrNull = async (path) => {
+	try {
+		return await readFile(path, "utf8");
+	} catch {
+		return null;
+	}
+};
+const readParkedSection = async (cwd, name, version) => {
+	const parked = await readFileOrNull(join(cwd, ".changeset", "changelogs", `${name.replaceAll("/", "!")}@${version}.md`));
+	return parked === null ? null : parked.trim();
+};
+const readCommittedSection = async (cwd, dir, version) => {
+	if (dir === void 0) return null;
+	const changelog = await readFileOrNull(join(cwd, dir, "CHANGELOG.md"));
+	return changelog === null ? null : extractVersionSection(changelog, version);
+};
 const collectChangelogPreviews = async (cwd, plan) => {
-	if (await readChangelogStorage(cwd) === "registry") return Promise.all(plan.map(async ({ name, newVersion }) => {
-		try {
-			return {
-				name,
-				newVersion,
-				section: (await readFile(join(cwd, ".changeset", "changelogs", parkedFileName(name, newVersion)), "utf8")).trim()
-			};
-		} catch {
-			return {
-				name,
-				newVersion,
-				section: null
-			};
-		}
-	}));
 	const dirs = await readLedgerDirs(cwd);
-	return Promise.all(plan.map(async ({ name, newVersion }) => {
-		const dir = dirs.get(releaseKey(name, newVersion));
-		if (dir === void 0) return {
-			name,
-			newVersion,
-			section: null
-		};
-		try {
-			const changelog = await readFile(join(cwd, dir, "CHANGELOG.md"), "utf8");
-			return {
-				name,
-				newVersion,
-				section: extractVersionSection(changelog, newVersion)
-			};
-		} catch {
-			return {
-				name,
-				newVersion,
-				section: null
-			};
-		}
-	}));
+	return Promise.all(plan.map(async ({ name, newVersion }) => ({
+		name,
+		newVersion,
+		section: await readParkedSection(cwd, name, newVersion) ?? await readCommittedSection(cwd, dirs.get(releaseKey(name, newVersion)), newVersion)
+	})));
 };
 // src/pnpm/publish.ts
 const listWorkspacePackages = async (cwd) => {

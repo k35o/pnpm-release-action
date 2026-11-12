@@ -68,6 +68,14 @@ describe('registry storage (pnpm default)', () => {
     expect(await detectPlan(dir)).toStrictEqual([]);
   });
 
+  test('a private package previews from the CHANGELOG.md pnpm writes for it', async () => {
+    const dir = await initFixtureWorkspace({ private: true });
+    const plan = await applyVersion(dir);
+    const previews = await collectChangelogPreviews(dir, plan);
+    expect(previews[0]?.section).toContain('### Minor Changes');
+    expect(previews[0]?.section).toContain('Add a fixture feature.');
+  });
+
   test('pnpm failures surface the underlying diagnostic', async () => {
     const dir = await initFixtureWorkspace();
     await writeFile(join(dir, 'dirty.txt'), 'x');
