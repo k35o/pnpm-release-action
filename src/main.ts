@@ -13,7 +13,7 @@ import type { PlanEntry } from './core/plan.ts';
 import { createGhClient } from './gh/client.ts';
 import { runPublishMode } from './modes/publish.ts';
 import { runVersionMode } from './modes/version.ts';
-import { assertPnpmVersion } from './pnpm/preflight.ts';
+import { assertPnpmVersion, ensureNpmAuth } from './pnpm/preflight.ts';
 import { detectPlan } from './pnpm/version.ts';
 
 const setPlanOutputs = (mode: Mode, plan: readonly PlanEntry[]): void => {
@@ -40,7 +40,9 @@ const writeSummary = async (
   await core.summary.write();
 };
 
-export const run = async (): Promise<void> => {
+export const run = async (
+  createClient: typeof createGhClient = createGhClient,
+): Promise<void> => {
   let mode: Mode | null = null;
   let plan: readonly PlanEntry[] = [];
   try {
@@ -55,6 +57,9 @@ export const run = async (): Promise<void> => {
     if (gitUserWarning !== null) core.warning(gitUserWarning);
     const pnpmVersion = await assertPnpmVersion(inputs.cwd);
     core.info(`Using pnpm ${pnpmVersion}`);
+    // プラン検出の `pnpm version -r` も、現在の版が公開済みかをレジストリに問い合わせる。
+    // 認証が無いと restricted パッケージは未公開に見え、bump されない
+    await ensureNpmAuth();
 
     plan = await detectPlan(inputs.cwd);
     mode = decideMode(plan.length > 0, inputs.modeWhenClean);
@@ -74,7 +79,7 @@ export const run = async (): Promise<void> => {
       ) {
         throw new InputError(['GITHUB_REPOSITORY is not set']);
       }
-      const client = createGhClient(inputs.githubToken, owner, repo);
+      const client = createClient(inputs.githubToken, owner, repo);
       if (mode === 'version') {
         const result = await runVersionMode(inputs, client);
         if (result === 'empty-apply') {

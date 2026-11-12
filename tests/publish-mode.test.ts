@@ -14,8 +14,6 @@ beforeAll(async () => {
   const dir = await mkdtemp(join(tmpdir(), 'pra-out-'));
   process.env.GITHUB_OUTPUT = join(dir, 'output');
   await writeFile(process.env.GITHUB_OUTPUT, '');
-  // ensureNpmAuth が実 ~/.npmrc に本物のトークンを書かないように必ず外す
-  delete process.env.NPM_TOKEN;
   // push イベント由来の before SHA 判定がテスト環境の env に引きずられないように
   delete process.env.GITHUB_EVENT_NAME;
 });

@@ -1,5 +1,4 @@
-import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import * as core from '@actions/core';
@@ -100,25 +99,4 @@ export const readPublishSummary = async (
     }
   }
   return published;
-};
-
-// npm 認証: OIDC trusted publishing が正で、NPM_TOKEN があるときだけ
-// $HOME/.npmrc へガード付きで追記する（既存の authToken 行には触れない）
-export const ensureNpmAuth = async (): Promise<void> => {
-  const token = process.env.NPM_TOKEN;
-  if (token === undefined || token === '') return;
-  core.setSecret(token);
-  const npmrc = join(homedir(), '.npmrc');
-  let existing: string;
-  try {
-    existing = await readFile(npmrc, 'utf8');
-  } catch {
-    existing = '';
-  }
-  if (existing.includes('registry.npmjs.org/:_authToken=')) return;
-  const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n';
-  await writeFile(
-    npmrc,
-    `${existing}${prefix}//registry.npmjs.org/:_authToken=${token}\n`,
-  );
 };

@@ -44,10 +44,15 @@ export const writeFixtureManifest = async (
 // パッケージがあるかどうかで結果が変わらないよう、返事を決め打ちするレジストリを立てる
 const startFakeRegistry = async (
   publishedVersion: string | null,
+  restricted: boolean,
 ): Promise<string> => {
   const server = createServer((request, response) => {
     const found =
-      publishedVersion !== null && request.url === `/${FIXTURE_NAME}`;
+      publishedVersion !== null &&
+      // プロキシとして受けた問い合わせは絶対 URL で届く
+      new URL(request.url ?? '/', 'http://registry').pathname ===
+        `/${FIXTURE_NAME}` &&
+      (!restricted || request.headers.authorization !== undefined);
     response.writeHead(found ? 200 : 404, {
       'content-type': 'application/json',
     });
@@ -85,6 +90,9 @@ export const initFixtureWorkspace = async (
     private?: boolean;
     // false: 現在の版がレジストリに無い（初回リリース前の）パッケージにする
     published?: boolean;
+    // true: npmjs.org の restricted パッケージのように、認証の無い問い合わせには
+    // パッケージの存在を隠す
+    restricted?: boolean;
   } = {},
 ): Promise<string> => {
   const root = await mkdtemp(join(tmpdir(), 'pra-fixture-'));
@@ -94,12 +102,20 @@ export const initFixtureWorkspace = async (
   // private は決して公開されない: レジストリに無い状態が実態で、それでも bump される
   // ことが検証対象になる
   const published = options.published ?? options.private !== true;
+  const restricted = options.restricted === true;
   const registry = await startFakeRegistry(
     published ? (options.version ?? '0.1.0') : null,
+    restricted,
   );
   await writeFile(
     join(dir, 'pnpm-workspace.yaml'),
-    `registry: ${registry}\n${
+    `${
+      // NPM_TOKEN の認証行は registry.npmjs.org 宛てにしか書かれない。偽レジストリを
+      // その名前のプロキシとして立て、本物と同じ宛先のままトークンを受け取る
+      restricted
+        ? `registry: http://registry.npmjs.org/\nhttpProxy: ${registry}\n`
+        : `registry: ${registry}\n`
+    }${
       options.storage === 'repository'
         ? 'versioning:\n  changelog:\n    storage: repository\n'
         : ''

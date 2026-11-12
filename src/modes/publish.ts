@@ -29,7 +29,6 @@ import {
   hasLanesConfigured,
 } from '../pnpm/changelogs.ts';
 import {
-  ensureNpmAuth,
   execPublish,
   isSinglePackageWorkspace,
   listWorkspacePackages,
@@ -200,7 +199,6 @@ export const runPublishMode = async (
       );
     }
   }
-  await ensureNpmAuth();
 
   // 部分失敗でも summary から outputs を先に設定してから exit code を伝播する
   let publishError: unknown = null;
