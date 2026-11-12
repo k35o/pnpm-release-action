@@ -92,6 +92,7 @@ changesets/action input names (`publish`, `setupGitUser`, …) are intentionally
 - pnpm **>= 12.7.0** on `PATH` before this action runs
 - `actions/checkout` with **`fetch-depth: 0`** (the release plan and released set need history)
 - npm auth via **OIDC trusted publishing** (nothing to configure here), or an `NPM_TOKEN` env var for the classic flow
+- A committed **`pnpm-lock.yaml`**: with `packageManager` pinned and no lockfile, pnpm writes one on its first command and `pnpm version` then aborts on the dirty tree
 - A clean working tree: steps that generate uncommitted files belong after this action
 
 ## Migrating from changesets/action
