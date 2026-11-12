@@ -27942,21 +27942,6 @@ const readPublishSummary = async (cwd) => {
 	});
 	return published;
 };
-const ensureNpmAuth = async () => {
-	const token = process.env.NPM_TOKEN;
-	if (token === void 0 || token === "") return;
-	setSecret(token);
-	const npmrc = join(homedir(), ".npmrc");
-	let existing;
-	try {
-		existing = await readFile(npmrc, "utf8");
-	} catch {
-		existing = "";
-	}
-	if (existing.includes("registry.npmjs.org/:_authToken=")) return;
-	const prefix = existing === "" || existing.endsWith("\n") ? "" : "\n";
-	await writeFile(npmrc, `${existing}${prefix}//registry.npmjs.org/:_authToken=${token}\n`);
-};
 // src/modes/publish.ts
 const pushBaseSha = async (cwd) => {
 	if (process.env.GITHUB_EVENT_NAME !== "push") return null;
@@ -28025,7 +28010,6 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 		const status = await statusPorcelain(inputs.cwd);
 		if (status !== "") throw new Error(`the \`build\` command left the working tree dirty, which would fail pnpm's publish git checks — gitignore build outputs or make the build reproduce committed files exactly:\n${status.split("\n").slice(0, 10).join("\n")}`);
 	}
-	await ensureNpmAuth();
 	let publishError = null;
 	try {
 		await publish(inputs.cwd, inputs.baseBranch);
@@ -28343,6 +28327,21 @@ const assertPnpmVersion = async (cwd) => {
 	if (!satisfiesMinimum(version, "12.7.0")) throw new PreflightError(`pnpm ${version} is too old: built-in release management needs pnpm >= ${MIN_PNPM_VERSION}`);
 	return version;
 };
+const ensureNpmAuth = async () => {
+	const token = process.env.NPM_TOKEN;
+	if (token === void 0 || token === "") return;
+	setSecret(token);
+	const npmrc = join(homedir(), ".npmrc");
+	let existing;
+	try {
+		existing = await readFile(npmrc, "utf8");
+	} catch {
+		existing = "";
+	}
+	if (existing.includes("registry.npmjs.org/:_authToken=")) return;
+	const prefix = existing === "" || existing.endsWith("\n") ? "" : "\n";
+	await writeFile(npmrc, `${existing}${prefix}//registry.npmjs.org/:_authToken=${token}\n`);
+};
 // src/main.ts
 const setPlanOutputs = (mode, plan) => {
 	setOutput("mode", mode);
@@ -28363,7 +28362,7 @@ const writeSummary = async (mode, plan) => {
 	summary.addRaw(lines.join("\n"), true);
 	await summary.write();
 };
-const run = async () => {
+const run = async (createClient = createGhClient) => {
 	let mode = null;
 	let plan = [];
 	try {
@@ -28374,6 +28373,7 @@ const run = async () => {
 		const gitUserWarning = detectIgnoredGitUserInputs(process.env, inputs.commitMode);
 		if (gitUserWarning !== null) warning(gitUserWarning);
 		info(`Using pnpm ${await assertPnpmVersion(inputs.cwd)}`);
+		await ensureNpmAuth();
 		plan = await detectPlan(inputs.cwd);
 		mode = decideMode(plan.length > 0, inputs.modeWhenClean);
 		setPlanOutputs(mode, plan);
@@ -28381,7 +28381,7 @@ const run = async () => {
 		else {
 			const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? "").split("/");
 			if (owner === void 0 || owner === "" || repo === void 0 || repo === "") throw new InputError(["GITHUB_REPOSITORY is not set"]);
-			const client = createGhClient(inputs.githubToken, owner, repo);
+			const client = createClient(inputs.githubToken, owner, repo);
 			if (mode === "version") {
 				if (await runVersionMode(inputs, client) === "empty-apply") {
 					mode = "none";

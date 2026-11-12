@@ -1,3 +1,8 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+import * as core from '@actions/core';
 import { getExecOutput } from '@actions/exec';
 
 import { satisfiesMinimum } from '../core/semver.ts';
@@ -35,4 +40,25 @@ export const assertPnpmVersion = async (cwd: string): Promise<string> => {
     );
   }
   return version;
+};
+
+// npm 認証: OIDC trusted publishing が正で、NPM_TOKEN があるときだけ
+// $HOME/.npmrc へガード付きで追記する（既存の authToken 行には触れない）
+export const ensureNpmAuth = async (): Promise<void> => {
+  const token = process.env.NPM_TOKEN;
+  if (token === undefined || token === '') return;
+  core.setSecret(token);
+  const npmrc = join(homedir(), '.npmrc');
+  let existing: string;
+  try {
+    existing = await readFile(npmrc, 'utf8');
+  } catch {
+    existing = '';
+  }
+  if (existing.includes('registry.npmjs.org/:_authToken=')) return;
+  const prefix = existing === '' || existing.endsWith('\n') ? '' : '\n';
+  await writeFile(
+    npmrc,
+    `${existing}${prefix}//registry.npmjs.org/:_authToken=${token}\n`,
+  );
 };
