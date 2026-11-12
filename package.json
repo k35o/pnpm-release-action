@@ -28,7 +28,7 @@
     "@actions/exec": "3.0.0",
     "@actions/github": "9.1.1",
     "@k8o/oxc-config": "1.1.0",
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.6",
     "typescript": "7.0.2",
     "vite-plus": "1.5.0",
     "yaml": "2.9.1"
