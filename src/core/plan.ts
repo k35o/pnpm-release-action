@@ -11,22 +11,15 @@ export class PlanParseError extends Error {
   }
 }
 
-// `pnpm version -r --json` はプランがあるときだけ JSON 配列を出し、空のときは
-// "No pending changes." というプレーンテキストを exit 0 で出す（実測）。
+// `pnpm version -r --json` は常に JSON 配列を出す（プランが空なら `[]`）
 export const parsePlanOutput = (stdout: string): PlanEntry[] => {
   const trimmed = stdout.trim();
-  if (!trimmed.startsWith('[')) {
-    if (trimmed === '' || trimmed.includes('No pending changes')) return [];
-    throw new PlanParseError(
-      `unexpected \`pnpm version -r --json\` output (pnpm contract may have changed): ${trimmed.slice(0, 200)}`,
-    );
-  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
   } catch (error) {
     throw new PlanParseError(
-      `\`pnpm version -r --json\` printed invalid JSON: ${trimmed.slice(0, 200)}`,
+      `unexpected \`pnpm version -r --json\` output (pnpm contract may have changed): ${trimmed.slice(0, 200)}`,
       { cause: error },
     );
   }

@@ -28136,15 +28136,11 @@ var PlanParseError = class extends Error {
 };
 const parsePlanOutput = (stdout) => {
 	const trimmed = stdout.trim();
-	if (!trimmed.startsWith("[")) {
-		if (trimmed === "" || trimmed.includes("No pending changes")) return [];
-		throw new PlanParseError(`unexpected \`pnpm version -r --json\` output (pnpm contract may have changed): ${trimmed.slice(0, 200)}`);
-	}
 	let parsed;
 	try {
 		parsed = JSON.parse(trimmed);
 	} catch (error) {
-		throw new PlanParseError(`\`pnpm version -r --json\` printed invalid JSON: ${trimmed.slice(0, 200)}`, { cause: error });
+		throw new PlanParseError(`unexpected \`pnpm version -r --json\` output (pnpm contract may have changed): ${trimmed.slice(0, 200)}`, { cause: error });
 	}
 	if (!Array.isArray(parsed)) throw new PlanParseError("expected a JSON array from `pnpm version -r --json`");
 	return parsed.map((entry, index) => {
