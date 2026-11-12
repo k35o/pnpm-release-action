@@ -17338,10 +17338,11 @@ const parseInputs = (env) => {
 	};
 };
 // src/core/markdown.ts
+const fromVersion = (entry) => entry.currentVersion === entry.newVersion ? "_unpublished_" : entry.currentVersion;
 const planTable = (plan) => [
 	"| Package | From | To |",
 	"| --- | --- | --- |",
-	...plan.map((entry) => `| \`${entry.name}\` | ${entry.currentVersion} | ${entry.newVersion} |`)
+	...plan.map((entry) => `| \`${entry.name}\` | ${fromVersion(entry)} | ${entry.newVersion} |`)
 ].join("\n");
 const publishedTable = (published) => [
 	"| Package | Version |",

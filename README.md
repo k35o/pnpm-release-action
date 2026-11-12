@@ -15,6 +15,8 @@ Every run picks one of two modes by asking pnpm for the pending release plan (in
 
 Merging the release PR lands you in publish mode — that is the whole loop.
 
+A public package whose current version is not on the registry yet is released at that version instead of being bumped (pnpm's first-release rule). The plan table lists it with `unpublished` in the From column.
+
 ## Usage
 
 ```yaml
