@@ -45,6 +45,29 @@ describe('registry storage (pnpm default)', () => {
     ]);
   });
 
+  test('applyVersion keeps the version of an unpublished package and still parks its changelog', async () => {
+    const dir = await initFixtureWorkspace({ published: false });
+    const plan = await applyVersion(dir);
+    expect(plan).toStrictEqual([
+      { name: 'fixture-pkg', currentVersion: '0.1.0', newVersion: '0.1.0' },
+    ]);
+    const manifest = JSON.parse(
+      await readFile(join(dir, 'package.json'), 'utf8'),
+    ) as { version: string };
+    expect(manifest.version).toBe('0.1.0');
+    const previews = await collectChangelogPreviews(dir, plan);
+    expect(previews[0]?.section).toContain('Add a fixture feature.');
+  });
+
+  test('an applied first release detects as an empty plan while still unpublished', async () => {
+    const dir = await initFixtureWorkspace({ published: false });
+    await applyVersion(dir);
+    await sh(dir, 'git', ['add', '-A']);
+    await sh(dir, 'git', ['commit', '-q', '-m', 'release']);
+    // release PR のマージ直後（publish 前）に再びプランが立つと PR が開き続けてしまう
+    expect(await detectPlan(dir)).toStrictEqual([]);
+  });
+
   test('pnpm failures surface the underlying diagnostic', async () => {
     const dir = await initFixtureWorkspace();
     await writeFile(join(dir, 'dirty.txt'), 'x');
