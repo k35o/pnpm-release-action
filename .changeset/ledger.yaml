@@ -20,3 +20,9 @@ pnpm-release-action@0.2.2:
   dir: ""
   intents:
     - auto-merge-arming
+pnpm-release-action@0.3.0:
+  dir: ""
+  intents:
+    - bundled-deps-refresh
+    - npm-auth-before-plan
+    - pnpm-12
