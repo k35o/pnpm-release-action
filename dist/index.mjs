@@ -17210,6 +17210,15 @@ function warning(message, properties = {}) {
 function info(message) {
 	process.stdout.write(message + os$1.EOL);
 }
+// src/core/dist-tag.ts
+const isValidDistTag = (tag) => tag !== "" && !/^v?\d/u.test(tag);
+const distTagFor = (version, stableTag) => {
+	const [release = ""] = version.split("+");
+	const dash = release.indexOf("-");
+	if (dash === -1) return stableTag;
+	const [preid = ""] = release.slice(dash + 1).split(".");
+	return preid !== "latest" && isValidDistTag(preid) ? preid : null;
+};
 // src/core/inputs.ts
 var InputError = class extends Error {
 	constructor(issues) {
@@ -17315,7 +17324,8 @@ const parseInputs = (env) => {
 	const baseBranch = explicitBaseBranch || (refIsBranch ? env.GITHUB_REF_NAME ?? "" : "");
 	if (baseBranch === "") issues.push("`base-branch` could not be determined: set the input, or trigger the workflow on a branch (refs/heads/*)");
 	const syncLockfile = parseBoolean(env, "sync-lockfile", true, issues);
-	const allowPrereleaseOnLatest = parseBoolean(env, "allow-prerelease-on-latest", false, issues);
+	const distTag = rawInput(env, "dist-tag") || "latest";
+	if (!isValidDistTag(distTag)) issues.push(`\`dist-tag\` cannot be \`${distTag}\`: npm rejects dist-tags that read as a semver range — use a name such as \`latest-3\``);
 	const githubToken = rawInput(env, "github-token");
 	if (githubToken === "") issues.push("`github-token` is required");
 	if (issues.length > 0) throw new InputError(issues);
@@ -17333,7 +17343,7 @@ const parseInputs = (env) => {
 		commitMode,
 		autoMerge,
 		syncLockfile,
-		allowPrereleaseOnLatest,
+		distTag,
 		githubToken
 	};
 };
@@ -27622,7 +27632,26 @@ const parseLedger = (raw) => {
 };
 const diffLedger = (current, previous) => [...current.entries()].filter(([key]) => !previous.has(key)).map(([, entry]) => entry);
 // src/core/publish-plan.ts
-const findPrereleaseLeaks = (packages) => packages.filter((pkg) => !pkg.private && pkg.version?.includes("-") === true);
+const planPublishGroups = (packages, stableTag) => {
+	const byTag = /* @__PURE__ */ new Map();
+	const untaggable = [];
+	for (const pkg of packages) {
+		if (pkg.private || pkg.version === null) continue;
+		const tag = distTagFor(pkg.version, stableTag);
+		if (tag === null) {
+			untaggable.push(pkg);
+			continue;
+		}
+		byTag.set(tag, [...byTag.get(tag) ?? [], pkg.name]);
+	}
+	return {
+		groups: [...byTag].map(([tag, names]) => ({
+			tag,
+			names
+		})),
+		untaggable
+	};
+};
 const tagNameFor = (singlePackage, name, version) => singlePackage ? `v${version}` : `${name}@${version}`;
 const buildReleaseTargets = (published, ledgerNew, singlePackage) => {
 	const seen = /* @__PURE__ */ new Set();
@@ -27827,19 +27856,6 @@ const extractVersionSection = (changelog, version) => {
 	return lines.slice(start, end).join("\n").trim();
 };
 // src/pnpm/changelogs.ts
-const readWorkspaceConfig = async (cwd) => {
-	let raw;
-	try {
-		raw = await readFile(join(cwd, "pnpm-workspace.yaml"), "utf8");
-	} catch {
-		return null;
-	}
-	return asRecord((0, import_dist.parse)(raw));
-};
-const hasLanesConfigured = async (cwd) => {
-	const lanes = asRecord(asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.lanes);
-	return lanes !== null && Object.keys(lanes).length > 0;
-};
 const readLedgerDirs = async (cwd) => {
 	const dirs = /* @__PURE__ */ new Map();
 	let raw;
@@ -27909,14 +27925,17 @@ const isSinglePackageWorkspace = async (cwd, packages) => {
 	return await realpath(only.path) === await realpath(cwd);
 };
 const summaryPath = (cwd) => join(cwd, "pnpm-publish-summary.json");
-const execPublish = async (cwd, publishBranch) => {
+const execPublish = async (cwd, publishBranch, group) => {
 	await rm(summaryPath(cwd), { force: true });
 	await runCommand(cwd, "pnpm", [
 		"publish",
 		"-r",
 		"--report-summary",
 		"--publish-branch",
-		publishBranch
+		publishBranch,
+		"--tag",
+		group.tag,
+		...group.names.flatMap((name) => ["--filter", name])
 	], { stream: true });
 };
 const readPublishSummary = async (cwd) => {
@@ -27969,14 +27988,11 @@ const releasedByLedger = async (cwd) => {
 	}
 	return diffLedger(current, parseLedger(await readFileAtRev(cwd, "HEAD^", ledgerPath)));
 };
-const guardPrereleases = (packages, released, allow) => {
-	const leaks = findPrereleaseLeaks(packages);
-	if (leaks.length === 0) return;
-	const releasedKeys = new Set(released.map((entry) => releaseKey(entry.name, entry.version)));
-	const inRelease = leaks.filter((pkg) => pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version)));
-	const outside = leaks.filter((pkg) => !inRelease.includes(pkg));
-	if (inRelease.length > 0 && !allow) throw new Error(`prerelease versions are in this release and would land on the \`latest\` dist-tag: ${inRelease.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — set \`allow-prerelease-on-latest: true\` to proceed (dist-tag selection is not supported yet)`);
-	if (outside.length > 0) warning(`prerelease versions exist in the workspace but are not part of this release: ${outside.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ")} — publish skips them if they are already on the registry, but check them if this is unexpected`);
+const describe = (packages) => packages.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ");
+const guardUntaggable = (untaggable, inRelease) => {
+	const blocking = untaggable.filter((pkg) => inRelease(pkg));
+	if (blocking.length > 0) throw new Error(`no dist-tag can be derived from these prerelease versions: ${describe(blocking)} — the prerelease identifier becomes the dist-tag, so it must not be numeric, \`latest\`, or readable as a semver range (use a lane name such as \`beta\`)`);
+	if (untaggable.length > 0) warning(`skipping prerelease versions that are not part of this release and have no usable dist-tag: ${describe(untaggable)}`);
 };
 const appendStepSummary = async (published, targets) => {
 	if (process.env.GITHUB_STEP_SUMMARY === void 0) return;
@@ -27995,8 +28011,10 @@ const appendStepSummary = async (published, targets) => {
 const runPublishMode = async (inputs, client, publish = execPublish) => {
 	const packages = await listWorkspacePackages(inputs.cwd);
 	const released = await releasedByLedger(inputs.cwd);
-	guardPrereleases(packages, released, inputs.allowPrereleaseOnLatest);
-	if (await hasLanesConfigured(inputs.cwd)) warning("`versioning.lanes` is configured, but lane -> dist-tag mapping is not supported yet: lane prereleases would go to `latest`");
+	const releasedKeys = new Set(released.map((entry) => releaseKey(entry.name, entry.version)));
+	const inRelease = (pkg) => pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version));
+	const { groups, untaggable } = planPublishGroups(packages, inputs.distTag);
+	guardUntaggable(untaggable, inRelease);
 	const singlePackage = await isSinglePackageWorkspace(inputs.cwd, packages);
 	const previews = await collectChangelogPreviews(inputs.cwd, released.map((entry) => ({
 		name: entry.name,
@@ -28011,12 +28029,16 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 		if (status !== "") throw new Error(`the \`build\` command left the working tree dirty, which would fail pnpm's publish git checks — gitignore build outputs or make the build reproduce committed files exactly:\n${status.split("\n").slice(0, 10).join("\n")}`);
 	}
 	let publishError = null;
-	try {
-		await publish(inputs.cwd, inputs.baseBranch);
-	} catch (error) {
-		publishError = error;
+	const published = [];
+	for (const group of groups) {
+		try {
+			await publish(inputs.cwd, inputs.baseBranch, group);
+		} catch (error) {
+			publishError = error;
+		}
+		published.push(...await readPublishSummary(inputs.cwd));
+		if (publishError !== null) break;
 	}
-	const published = await readPublishSummary(inputs.cwd);
 	setOutput("published", published.length > 0 ? "true" : "false");
 	setOutput("published-packages", JSON.stringify(published));
 	if (publishError !== null) throw publishError instanceof Error ? publishError : new Error(JSON.stringify(publishError));

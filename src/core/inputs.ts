@@ -1,3 +1,5 @@
+import { isValidDistTag } from './dist-tag.ts';
+
 export type GitUserSetup =
   | { readonly kind: 'actions-bot' }
   | { readonly kind: 'keep' }
@@ -21,7 +23,7 @@ export type Inputs = {
   readonly commitMode: CommitMode;
   readonly autoMerge: boolean;
   readonly syncLockfile: boolean;
-  readonly allowPrereleaseOnLatest: boolean;
+  readonly distTag: string;
   readonly githubToken: string;
 };
 
@@ -204,12 +206,12 @@ export const parseInputs = (env: Env): Inputs => {
   }
 
   const syncLockfile = parseBoolean(env, 'sync-lockfile', true, issues);
-  const allowPrereleaseOnLatest = parseBoolean(
-    env,
-    'allow-prerelease-on-latest',
-    false,
-    issues,
-  );
+  const distTag = rawInput(env, 'dist-tag') || 'latest';
+  if (!isValidDistTag(distTag)) {
+    issues.push(
+      `\`dist-tag\` cannot be \`${distTag}\`: npm rejects dist-tags that read as a semver range — use a name such as \`latest-3\``,
+    );
+  }
 
   const githubToken = rawInput(env, 'github-token');
   if (githubToken === '') {
@@ -232,7 +234,7 @@ export const parseInputs = (env: Env): Inputs => {
     commitMode,
     autoMerge,
     syncLockfile,
-    allowPrereleaseOnLatest,
+    distTag,
     githubToken,
   };
 };

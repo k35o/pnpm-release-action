@@ -32,7 +32,7 @@ const makeInputs = (cwd: string): Inputs => ({
   commitMode: 'git-cli',
   autoMerge: false,
   syncLockfile: false,
-  allowPrereleaseOnLatest: false,
+  distTag: 'latest',
   githubToken: 'dummy-token',
 });
 

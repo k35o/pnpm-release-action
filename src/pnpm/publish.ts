@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import * as core from '@actions/core';
 
 import type {
+  PublishGroup,
   PublishedPackage,
   WorkspacePackage,
 } from '../core/publish-plan.ts';
@@ -52,16 +53,25 @@ export const isSinglePackageWorkspace = async (
 const summaryPath = (cwd: string): string =>
   join(cwd, 'pnpm-publish-summary.json');
 
-// 内蔵 publish。dist-tag は指定しない（= latest。lane 対応は v1 の publish-command で）
 export const execPublish = async (
   cwd: string,
   publishBranch: string,
+  group: PublishGroup,
 ): Promise<void> => {
   await rm(summaryPath(cwd), { force: true });
   await runCommand(
     cwd,
     'pnpm',
-    ['publish', '-r', '--report-summary', '--publish-branch', publishBranch],
+    [
+      'publish',
+      '-r',
+      '--report-summary',
+      '--publish-branch',
+      publishBranch,
+      '--tag',
+      group.tag,
+      ...group.names.flatMap((name) => ['--filter', name]),
+    ],
     { stream: true },
   );
 };

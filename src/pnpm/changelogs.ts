@@ -8,27 +8,6 @@ import type { ChangelogPreview } from '../core/changelog.ts';
 import { releaseKey } from '../core/keys.ts';
 import { asRecord } from '../core/records.ts';
 
-const readWorkspaceConfig = async (
-  cwd: string,
-): Promise<Record<string, unknown> | null> => {
-  let raw: string;
-  try {
-    raw = await readFile(join(cwd, 'pnpm-workspace.yaml'), 'utf8');
-  } catch {
-    return null;
-  }
-  return asRecord(parse(raw));
-};
-
-// MVP は lane 非対応（内蔵 publish に dist-tag 指定手段が無い）。設定を検出
-// したら publish モードで warning を出すための判定
-export const hasLanesConfigured = async (cwd: string): Promise<boolean> => {
-  const lanes = asRecord(
-    asRecord(asRecord(await readWorkspaceConfig(cwd))?.versioning)?.lanes,
-  );
-  return lanes !== null && Object.keys(lanes).length > 0;
-};
-
 // ledger.yaml は "name@version" -> { dir, intents } の committed な台帳。
 // CHANGELOG.md の場所を知るのに dir を使う。
 const readLedgerDirs = async (

@@ -42,16 +42,18 @@ export const writeFixtureManifest = async (
 // pnpm は version / publish の前に、対象の版が公開済みかをレジストリへ問い合わせる
 // （未公開なら bump せず、その版のまま初回リリースにする）。npmjs.org に同名の
 // パッケージがあるかどうかで結果が変わらないよう、返事を決め打ちするレジストリを立てる
-const startFakeRegistry = async (
-  publishedVersion: string | null,
-  restricted: boolean,
+export const startFakeRegistry = async (
+  latestByName: Readonly<Record<string, string>>,
+  restricted = false,
 ): Promise<string> => {
   const server = createServer((request, response) => {
-    const found =
-      publishedVersion !== null &&
+    const name = decodeURIComponent(
       // プロキシとして受けた問い合わせは絶対 URL で届く
-      new URL(request.url ?? '/', 'http://registry').pathname ===
-        `/${FIXTURE_NAME}` &&
+      new URL(request.url ?? '/', 'http://registry').pathname.slice(1),
+    );
+    const latest = latestByName[name];
+    const found =
+      latest !== undefined &&
       (!restricted || request.headers.authorization !== undefined);
     response.writeHead(found ? 200 : 404, {
       'content-type': 'application/json',
@@ -59,14 +61,9 @@ const startFakeRegistry = async (
     response.end(
       found
         ? JSON.stringify({
-            name: FIXTURE_NAME,
-            'dist-tags': { latest: publishedVersion },
-            versions: {
-              [publishedVersion]: {
-                name: FIXTURE_NAME,
-                version: publishedVersion,
-              },
-            },
+            name,
+            'dist-tags': { latest },
+            versions: { [latest]: { name, version: latest } },
           })
         : '{"error":"Not found"}',
     );
@@ -104,7 +101,7 @@ export const initFixtureWorkspace = async (
   const published = options.published ?? options.private !== true;
   const restricted = options.restricted === true;
   const registry = await startFakeRegistry(
-    published ? (options.version ?? '0.1.0') : null,
+    published ? { [FIXTURE_NAME]: options.version ?? '0.1.0' } : {},
     restricted,
   );
   await writeFile(

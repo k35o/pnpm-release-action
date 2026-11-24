@@ -2,19 +2,36 @@ import { describe, expect, test } from 'vite-plus/test';
 
 import {
   buildReleaseTargets,
-  findPrereleaseLeaks,
+  planPublishGroups,
   tagNameFor,
 } from '../src/core/publish-plan.ts';
 
-describe('findPrereleaseLeaks', () => {
-  test('flags public prereleases only', () => {
-    const leaks = findPrereleaseLeaks([
-      { name: 'a', version: '1.0.0', path: '/a', private: false },
-      { name: 'b', version: '2.0.0-alpha.1', path: '/b', private: false },
-      { name: 'c', version: '3.0.0-rc.0', path: '/c', private: true },
-      { name: 'root', version: null, path: '/', private: true },
+describe('planPublishGroups', () => {
+  test('splits public packages by dist-tag', () => {
+    const { groups, untaggable } = planPublishGroups(
+      [
+        { name: 'a', version: '1.0.0', path: '/a', private: false },
+        { name: 'b', version: '2.0.0-alpha.1', path: '/b', private: false },
+        { name: 'c', version: '1.4.0', path: '/c', private: false },
+        { name: 'd', version: '3.0.0-rc.0', path: '/d', private: true },
+        { name: 'root', version: null, path: '/', private: true },
+      ],
+      'latest',
+    );
+    expect(groups).toStrictEqual([
+      { tag: 'latest', names: ['a', 'c'] },
+      { tag: 'alpha', names: ['b'] },
     ]);
-    expect(leaks.map((pkg) => pkg.name)).toStrictEqual(['b']);
+    expect(untaggable).toStrictEqual([]);
+  });
+
+  test('sets aside prereleases without a usable identifier', () => {
+    const { groups, untaggable } = planPublishGroups(
+      [{ name: 'a', version: '1.0.0-0', path: '/a', private: false }],
+      'latest',
+    );
+    expect(groups).toStrictEqual([]);
+    expect(untaggable.map((pkg) => pkg.name)).toStrictEqual(['a']);
   });
 });
 

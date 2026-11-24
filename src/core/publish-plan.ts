@@ -1,3 +1,4 @@
+import { distTagFor } from './dist-tag.ts';
 import { releaseKey } from './keys.ts';
 
 export type PublishedPackage = {
@@ -12,12 +13,34 @@ export type WorkspacePackage = {
   readonly private: boolean;
 };
 
-// 内蔵 publish は dist-tag を指定しない（= latest）ため、prerelease が混ざって
-// いたら guard で止める。private は publish されないので対象外
-export const findPrereleaseLeaks = (
+export type PublishGroup = {
+  readonly tag: string;
+  readonly names: readonly string[];
+};
+
+// `pnpm publish -r --tag` は選んだ全パッケージに同じ tag を付けるため、lane の
+// prerelease と main lane の stable が同じリリースに混ざると tag ごとに分けて
+// publish するしかない
+export const planPublishGroups = (
   packages: readonly WorkspacePackage[],
-): WorkspacePackage[] =>
-  packages.filter((pkg) => !pkg.private && pkg.version?.includes('-') === true);
+  stableTag: string,
+): { groups: PublishGroup[]; untaggable: WorkspacePackage[] } => {
+  const byTag = new Map<string, string[]>();
+  const untaggable: WorkspacePackage[] = [];
+  for (const pkg of packages) {
+    if (pkg.private || pkg.version === null) continue;
+    const tag = distTagFor(pkg.version, stableTag);
+    if (tag === null) {
+      untaggable.push(pkg);
+      continue;
+    }
+    byTag.set(tag, [...(byTag.get(tag) ?? []), pkg.name]);
+  }
+  return {
+    groups: [...byTag].map(([tag, names]) => ({ tag, names })),
+    untaggable,
+  };
+};
 
 export const tagNameFor = (
   singlePackage: boolean,
