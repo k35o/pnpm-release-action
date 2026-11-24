@@ -312,6 +312,7 @@ export const runPublishMode = async (
         tag: target.tag,
         body: section ?? `Release ${target.name}@${target.version}.`,
         prerelease: target.version.includes('-'),
+        makeLatest: distTagFor(target.version, inputs.distTag) === 'latest',
       });
     }
   }

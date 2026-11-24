@@ -43,7 +43,12 @@ const makeInputs = (cwd: string): Inputs => ({
   githubToken: 'dummy-token',
 });
 
-type ReleaseCalls = Array<{ tag: string; body: string; prerelease: boolean }>;
+type ReleaseCalls = Array<{
+  tag: string;
+  body: string;
+  prerelease: boolean;
+  makeLatest: boolean;
+}>;
 
 const makeFakeClient = (
   existingReleases: readonly string[] = [],
@@ -219,6 +224,28 @@ test('the dist-tag input routes a stable release elsewhere', async () => {
   expect(groups).toStrictEqual([{ tag: 'latest-0', names: ['fixture-pkg'] }]);
 });
 
+test('a release on latest becomes the repository Latest release', async () => {
+  const dir = await releasedFixture();
+  const { client, releases } = makeFakeClient();
+
+  await runPublishMode(makeInputs(dir), client, dryRunPublish);
+
+  expect(releases[0]?.makeLatest).toBe(true);
+});
+
+test('a release under another dist-tag stays off the repository Latest release', async () => {
+  const dir = await releasedFixture();
+  const { client, releases } = makeFakeClient();
+
+  await runPublishMode(
+    { ...makeInputs(dir), distTag: 'latest-0' },
+    client,
+    dryRunPublish,
+  );
+
+  expect(releases[0]?.makeLatest).toBe(false);
+});
+
 test('a stable release below the registry latest aborts before publishing', async () => {
   const dir = await versionedFixture('0.9.0', { version: '1.0.0' });
   const { client, releases } = makeFakeClient();
@@ -256,6 +283,7 @@ test('a lane prerelease goes to its lane dist-tag', async () => {
   expect(releases[0]).toMatchObject({
     tag: 'v1.5.0-alpha.0',
     prerelease: true,
+    makeLatest: false,
   });
 });
 

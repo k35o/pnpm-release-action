@@ -20991,14 +20991,15 @@ const createReleaseOps = (octokit, owner, repo) => ({
 			throw error;
 		}
 	},
-	createRelease: async ({ tag, body, prerelease }) => {
+	createRelease: async ({ tag, body, prerelease, makeLatest }) => {
 		await octokit.rest.repos.createRelease({
 			owner,
 			repo,
 			tag_name: tag,
 			name: tag,
 			body,
-			prerelease
+			prerelease,
+			make_latest: makeLatest ? "true" : "false"
 		});
 	}
 });
@@ -28131,7 +28132,8 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 			await client.createRelease({
 				tag: target.tag,
 				body: section ?? `Release ${target.name}@${target.version}.`,
-				prerelease: target.version.includes("-")
+				prerelease: target.version.includes("-"),
+				makeLatest: distTagFor(target.version, inputs.distTag) === "latest"
 			});
 		}
 	}
