@@ -1,8 +1,9 @@
 name: pnpm Release
 description: >-
   Release automation for pnpm's built-in versioning: opens a release PR from
-  pending change intents, then publishes to npm, pushes tags, and creates
-  GitHub Releases when it merges.
+  pending change intents, then stages the release on npm when it merges,
+  waits for a maintainer to approve it, pushes tags, and creates GitHub
+  Releases.
 author: k8o
 branding:
   icon: package
@@ -11,7 +12,7 @@ branding:
 inputs:
   build:
     description: >-
-      Command to run before the built-in `pnpm publish -r` in publish mode
+      Command to run before the built-in `pnpm stage publish -r` in publish mode
       (e.g. `pnpm build`). Skipped when empty. Not run in version-PR mode.
     required: false
   commit-message:
@@ -94,9 +95,13 @@ outputs:
   mode:
     description: 'What the run did: `version`, `publish`, or `none`.'
   published:
-    description: '`"true"` when at least one package was published.'
+    description: >-
+      `"true"` when at least one package of the release was approved and is on
+      the registry.
   published-packages:
-    description: JSON array of `{ name, version }` for published packages.
+    description: >-
+      JSON array of `{ name, version }` for the packages of the release that
+      are on the registry.
   has-pending-changes:
     description: '`"true"` when the release plan was non-empty.'
   pr-number:
