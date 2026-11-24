@@ -1,6 +1,6 @@
 # pnpm-release-action
 
-GitHub Action for [pnpm's built-in release management](https://pnpm.io/versioning) (pnpm 12.7+): opens a release PR from pending change intents, then publishes to npm, pushes tags, and creates GitHub Releases when the PR merges.
+GitHub Action for [pnpm's built-in release management](https://pnpm.io/versioning) (pnpm 12.7+): opens a release PR from pending change intents, then stages the release on npm when the PR merges, waits for a maintainer to approve it, pushes tags, and creates GitHub Releases.
 
 pnpm owns the hard parts — change intents (`pnpm change`), the release plan with propagation/fixed/epic semantics (`pnpm version -r`), the ledger, changelogs, and publish selection. This action owns the layer pnpm deliberately leaves to CI: git commits, branches, pull requests, tags, and GitHub Releases. It has zero semver logic and zero `@changesets/*` dependencies.
 
@@ -11,9 +11,9 @@ pnpm owns the hard parts — change intents (`pnpm change`), the release plan wi
 Every run picks one of two modes by asking pnpm for the pending release plan (in a disposable git worktree, so your checkout is never touched):
 
 - **Pending intents → version mode.** Rebuilds `<branch-prefix><base-branch>` from the trigger commit, applies `pnpm version -r`, syncs the lockfile, and opens (or force-updates) a single release PR with the plan table and changelog previews.
-- **No intents → publish mode** (`mode-when-clean: publish`, the default). Runs your `build` command, then the built-in `pnpm publish -r --report-summary` once per dist-tag, pushes a tag per released package, and creates GitHub Releases with the changelog as the body. Private packages are tagged too, via the committed ledger.
+- **No intents → publish mode** (`mode-when-clean: publish`, the default). Runs your `build` command, then the built-in `pnpm stage publish -r --report-summary` once per dist-tag. Once a maintainer approves the staged versions on npm, it pushes a tag per released package and creates GitHub Releases with the changelog as the body (see [Staged publishing](#staged-publishing)). Private packages are tagged too, via the committed ledger.
 
-Merging the release PR lands you in publish mode — that is the whole loop.
+Merging the release PR lands you in publish mode, and approving the staged versions on npm finishes it — that is the whole loop.
 
 A public package whose current version is not on the registry yet is released at that version instead of being bumped (pnpm's first-release rule). The plan table lists it with `unpublished` in the From column.
 
@@ -33,7 +33,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45 # the run waits up to 30 minutes for the npm approval
     steps:
       - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
         id: app-token
@@ -58,7 +58,7 @@ Use a GitHub App token (`actions/create-github-app-token`) rather than the defau
 
 | input                    | default                  | description                                                                                                                                            |
 | ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `build`                  | –                        | Command run before the built-in publish (e.g. `pnpm build`). Skipped when empty; never runs in version-PR mode                                         |
+| `build`                  | –                        | Command run before the built-in stage publish (e.g. `pnpm build`). Skipped when empty; never runs in version-PR mode                                   |
 | `commit-message`         | `chore: prepare release` | Version commit message                                                                                                                                 |
 | `pr-title`               | `chore: prepare release` | Release PR title                                                                                                                                       |
 | `base-branch`            | triggering branch        | Base branch of the release PR. Required explicitly on non-branch triggers                                                                              |
@@ -79,13 +79,24 @@ changesets/action input names (`publish`, `setupGitUser`, …) are intentionally
 
 ## Outputs
 
-| output                | description                                      |
-| --------------------- | ------------------------------------------------ |
-| `mode`                | `version` / `publish` / `none`                   |
-| `published`           | `"true"` when at least one package was published |
-| `published-packages`  | JSON array of `{ name, version }`                |
-| `has-pending-changes` | `"true"` when the release plan was non-empty     |
-| `pr-number`           | Release PR number (empty outside version mode)   |
+| output                | description                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `mode`                | `version` / `publish` / `none`                                                        |
+| `published`           | `"true"` when at least one package of the release was approved and is on the registry |
+| `published-packages`  | JSON array of `{ name, version }` for those packages                                  |
+| `has-pending-changes` | `"true"` when the release plan was non-empty                                          |
+| `pr-number`           | Release PR number (empty outside version mode)                                        |
+
+## Staged publishing
+
+Publish mode never publishes on its own. It stages each release with `pnpm stage publish`, and npm keeps the staged versions off the registry until a maintainer approves them with 2FA, on [Staged Packages](https://www.npmjs.com/settings/~/staged-packages) or with `npm stage list` and `npm stage approve <stage-id>`. An OIDC token can stage but cannot approve, so whatever reaches `main` or the build still needs a human before it reaches npm.
+
+npm sends no notification, so the run announces the staged versions in a warning annotation and the job summary, then checks the registry every 15 seconds for up to 30 minutes:
+
+- When every version of the release is on the registry, the run pushes the tags, creates the GitHub Releases, and sets the `published` outputs.
+- Otherwise the run fails and lists the versions still waiting. It creates no tags or Releases, not even for the approved packages of a monorepo release. Approve the rest and re-run the job: pnpm skips the versions already on the registry, and the run picks up the tags, the Releases, and the outputs. npm refuses to stage a version that is already staged, so a re-run before the approval fails at staging.
+
+Give the job a `timeout-minutes` above 30 so the wait can finish. Once a release has gone through staging, turn off "Allow npm publish" on the package's trusted publisher so CI can only stage.
 
 ## Prereleases and maintenance branches
 
@@ -117,7 +128,7 @@ Publish mode refuses to move `latest` below the version already on it, so forget
 
 - pnpm **>= 12.7.0** on `PATH` before this action runs
 - `actions/checkout` with **`fetch-depth: 0`** (the release plan and released set need history)
-- npm auth via **OIDC trusted publishing** (nothing to configure here), or an `NPM_TOKEN` env var for the classic flow
+- npm auth via **OIDC trusted publishing** whose trusted publisher allows staging (nothing to configure in the workflow), or an `NPM_TOKEN` env var that can stage
 - A committed **`pnpm-lock.yaml`**: with `packageManager` pinned and no lockfile, pnpm writes one on its first command and `pnpm version` then aborts on the dirty tree
 - A clean working tree: steps that generate uncommitted files belong after this action
 
