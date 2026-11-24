@@ -28,7 +28,7 @@
     "@actions/exec": "3.0.0",
     "@actions/github": "9.1.1",
     "@k8o/oxc-config": "1.1.0",
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.6",
     "@types/semver": "7.8.0",
     "semver": "7.8.6",
     "typescript": "7.0.2",
