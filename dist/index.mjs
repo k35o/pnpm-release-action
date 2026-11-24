@@ -13522,7 +13522,7 @@ var require_util$2 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	};
 }));
 // node_modules/.pnpm/undici@6.29.1/node_modules/undici/lib/web/cookies/parse.js
-var require_parse = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+var require_parse$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	const { maxNameValuePairSize, maxAttributeValueSize } = require_constants$2();
 	const { isCTLExcludingHtab } = require_util$2();
 	const { collectASequenceOfCodePointsFast } = require_data_url();
@@ -13624,7 +13624,7 @@ var require_parse = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 }));
 // node_modules/.pnpm/undici@6.29.1/node_modules/undici/lib/web/cookies/index.js
 var require_cookies = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	const { parseSetCookie } = require_parse();
+	const { parseSetCookie } = require_parse$1();
 	const { stringify } = require_util$2();
 	const { webidl } = require_webidl();
 	const { Headers } = require_headers();
@@ -18353,7 +18353,7 @@ var require_range = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	};
 }));
 // src/core/dist-tag.ts
-var import_valid = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
+var import_valid$1 = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	const Range = require_range();
 	const validRange = (range, options) => {
 		try {
@@ -18364,7 +18364,7 @@ var import_valid = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((expo
 	};
 	module.exports = validRange;
 })))(), 1);
-const isValidDistTag = (tag) => (0, import_valid.default)(tag) === null;
+const isValidDistTag = (tag) => (0, import_valid$1.default)(tag) === null;
 const distTagFor = (version, stableTag) => {
 	const [release = ""] = version.split("+");
 	const dash = release.indexOf("-");
@@ -28822,41 +28822,35 @@ const buildReleaseTargets = (published, ledgerNew, singlePackage) => {
 	}
 	return targets;
 };
-// src/core/semver.ts
-const parseVersion = (version) => {
-	const match = /^(\d+)\.(\d+)\.(\d+)(-)?/u.exec(version.trim());
-	if (match === null) return null;
-	return {
-		triple: [
-			Number(match[1]),
-			Number(match[2]),
-			Number(match[3])
-		],
-		prerelease: match[4] !== void 0
+// node_modules/.pnpm/semver@7.8.6/node_modules/semver/functions/parse.js
+var require_parse = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const SemVer = require_semver();
+	const parse = (version, options, throwErrors = false) => {
+		if (version instanceof SemVer) return version;
+		try {
+			return new SemVer(version, options);
+		} catch (er) {
+			if (!throwErrors) return null;
+			throw er;
+		}
 	};
-};
-const compareVersions = (a, b) => {
-	const left = parseVersion(a);
-	const right = parseVersion(b);
-	if (left === null || right === null) return null;
-	for (const index of [
-		0,
-		1,
-		2
-	]) {
-		const diff = left.triple[index] - right.triple[index];
-		if (diff !== 0) return diff;
-	}
-	return Number(right.prerelease) - Number(left.prerelease);
-};
-const satisfiesMinimum = (version, minimum) => {
-	const order = compareVersions(version, minimum);
-	return order !== null && order >= 0;
-};
-const isBelow = (version, other) => {
-	const order = compareVersions(version, other);
-	return order !== null && order < 0;
-};
+	module.exports = parse;
+}));
+// node_modules/.pnpm/semver@7.8.6/node_modules/semver/functions/valid.js
+var require_valid = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	const parse = require_parse();
+	const valid = (version, options) => {
+		const v = parse(version, options);
+		return v ? v.version : null;
+	};
+	module.exports = valid;
+}));
+// src/core/semver.ts
+var import_gte = /* @__PURE__ */ __toESM(require_gte(), 1);
+var import_lt = /* @__PURE__ */ __toESM(require_lt(), 1);
+var import_valid = /* @__PURE__ */ __toESM(require_valid(), 1);
+const satisfiesMinimum = (version, minimum) => (0, import_valid.default)(version) !== null && (0, import_gte.default)(version, minimum);
+const isBelow = (version, other) => (0, import_valid.default)(version) !== null && (0, import_valid.default)(other) !== null && (0, import_lt.default)(version, other);
 // src/proc.ts
 var CommandError = class extends Error {
 	constructor(message) {

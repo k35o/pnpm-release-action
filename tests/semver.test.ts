@@ -18,6 +18,11 @@ describe('isBelow', () => {
     expect(isBelow('4.0.0-beta.3', '4.0.0')).toBe(true);
   });
 
+  test('prereleases of the same version compare by their identifiers', () => {
+    expect(isBelow('4.0.0-beta.2', '4.0.0-beta.10')).toBe(true);
+    expect(isBelow('4.0.0-rc.0', '4.0.0-beta.10')).toBe(false);
+  });
+
   test('unparsable versions are never below', () => {
     expect(isBelow('not-a-version', '1.0.0')).toBe(false);
   });
