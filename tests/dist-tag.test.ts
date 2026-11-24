@@ -11,6 +11,7 @@ describe('distTagFor', () => {
   test('prereleases take their prerelease identifier', () => {
     expect(distTagFor('4.0.0-beta.0', 'latest')).toBe('beta');
     expect(distTagFor('4.0.0-next-major.2', 'latest-3')).toBe('next-major');
+    expect(distTagFor('4.0.0-v4-lts.0', 'latest')).toBe('v4-lts');
   });
 
   test('build metadata does not count as a prerelease', () => {
@@ -31,9 +32,16 @@ describe('isValidDistTag', () => {
     expect(isValidDistTag('beta')).toBe(true);
   });
 
+  test('accepts version-prefixed names that are not a semver range', () => {
+    expect(isValidDistTag('v3-lts')).toBe(true);
+    expect(isValidDistTag('v2-latest')).toBe(true);
+  });
+
   test('rejects names npm would read as a semver range', () => {
     expect(isValidDistTag('v3')).toBe(false);
     expect(isValidDistTag('3.x')).toBe(false);
+    expect(isValidDistTag('^3')).toBe(false);
+    expect(isValidDistTag('*')).toBe(false);
     expect(isValidDistTag('')).toBe(false);
   });
 });

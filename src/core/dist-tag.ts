@@ -1,7 +1,7 @@
-// npm は semver range として読める名前（`v3`、`4`、`3.x` など）を dist-tag として
-// 受け付けない。lane 名と `dist-tag` input で現実に起きうる形だけを弾く
+import validRange from 'semver/ranges/valid';
+
 export const isValidDistTag = (tag: string): boolean =>
-  tag !== '' && !/^v?\d/u.test(tag);
+  validRange(tag) === null;
 
 export const distTagFor = (
   version: string,
