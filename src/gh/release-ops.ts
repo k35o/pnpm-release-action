@@ -6,6 +6,7 @@ export type ReleaseOps = {
     tag: string;
     body: string;
     prerelease: boolean;
+    makeLatest: boolean;
   }) => Promise<void>;
 };
 
@@ -23,7 +24,12 @@ export const createReleaseOps = (
       throw error;
     }
   },
-  createRelease: async ({ tag, body, prerelease }): Promise<void> => {
+  createRelease: async ({
+    tag,
+    body,
+    prerelease,
+    makeLatest,
+  }): Promise<void> => {
     await octokit.rest.repos.createRelease({
       owner,
       repo,
@@ -31,6 +37,7 @@ export const createReleaseOps = (
       name: tag,
       body,
       prerelease,
+      make_latest: makeLatest ? 'true' : 'false',
     });
   },
 });

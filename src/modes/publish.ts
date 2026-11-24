@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 import * as core from '@actions/core';
 
+import { distTagFor } from '../core/dist-tag.ts';
 import type { Inputs } from '../core/inputs.ts';
 import { releaseKey } from '../core/keys.ts';
 import { diffLedger, parseLedger } from '../core/ledger.ts';
@@ -9,9 +10,15 @@ import type { LedgerEntry } from '../core/ledger.ts';
 import { publishedTable } from '../core/markdown.ts';
 import {
   buildReleaseTargets,
-  findPrereleaseLeaks,
+  planPublishGroups,
 } from '../core/publish-plan.ts';
-import type { ReleaseTarget } from '../core/publish-plan.ts';
+import type {
+  PublishGroup,
+  PublishedPackage,
+  ReleaseTarget,
+  WorkspacePackage,
+} from '../core/publish-plan.ts';
+import { isBelow } from '../core/semver.ts';
 import type { GhClient } from '../gh/client.ts';
 import {
   commitExists,
@@ -24,12 +31,10 @@ import {
   statusPorcelain,
   tagExists,
 } from '../git/repo.ts';
-import {
-  collectChangelogPreviews,
-  hasLanesConfigured,
-} from '../pnpm/changelogs.ts';
+import { collectChangelogPreviews } from '../pnpm/changelogs.ts';
 import {
   execPublish,
+  fetchLatestVersion,
   isSinglePackageWorkspace,
   listWorkspacePackages,
   readPublishSummary,
@@ -96,45 +101,44 @@ const releasedByLedger = async (cwd: string): Promise<LedgerEntry[]> => {
   );
 };
 
-// prerelease ガード: このリリースに含まれる prerelease（lanes 由来など）はエラー、
-// リリース対象外の prerelease（過去の残置・手動バンプ）は誤ブロックを避けて warning
-const guardPrereleases = (
-  packages: ReadonlyArray<{
-    name: string;
-    version: string | null;
-    private: boolean;
-    path: string;
-  }>,
-  released: readonly LedgerEntry[],
-  allow: boolean,
+const describe = (packages: readonly WorkspacePackage[]): string =>
+  packages.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(', ');
+
+// dist-tag を決められない prerelease のうち、このリリースのものはエラー。過去の
+// 残置や手動バンプは誤ブロックを避けて publish から外し warning に留める
+const guardUntaggable = (
+  untaggable: readonly WorkspacePackage[],
+  inRelease: (pkg: WorkspacePackage) => boolean,
 ): void => {
-  const leaks = findPrereleaseLeaks(packages);
-  if (leaks.length === 0) return;
-  const releasedKeys = new Set(
-    released.map((entry) => releaseKey(entry.name, entry.version)),
-  );
-  const inRelease = leaks.filter(
-    (pkg) =>
-      pkg.version !== null &&
-      releasedKeys.has(releaseKey(pkg.name, pkg.version)),
-  );
-  const outside = leaks.filter((pkg) => !inRelease.includes(pkg));
-  if (inRelease.length > 0 && !allow) {
+  const blocking = untaggable.filter((pkg) => inRelease(pkg));
+  if (blocking.length > 0) {
     throw new Error(
-      `prerelease versions are in this release and would land on the \`latest\` dist-tag: ${inRelease
-        .map((pkg) => `${pkg.name}@${String(pkg.version)}`)
-        .join(
-          ', ',
-        )} — set \`allow-prerelease-on-latest: true\` to proceed (dist-tag selection is not supported yet)`,
+      `no dist-tag can be derived from these prerelease versions: ${describe(blocking)} — the prerelease identifier becomes the dist-tag, so it must not be numeric, \`latest\`, or readable as a semver range (use a lane name such as \`beta\`)`,
     );
   }
-  if (outside.length > 0) {
+  if (untaggable.length > 0) {
     core.warning(
-      `prerelease versions exist in the workspace but are not part of this release: ${outside
-        .map((pkg) => `${pkg.name}@${String(pkg.version)}`)
-        .join(
-          ', ',
-        )} — publish skips them if they are already on the registry, but check them if this is unexpected`,
+      `skipping prerelease versions that are not part of this release and have no usable dist-tag: ${describe(untaggable)}`,
+    );
+  }
+};
+
+const guardLatestDowngrade = async (
+  cwd: string,
+  candidates: readonly WorkspacePackage[],
+): Promise<void> => {
+  const downgrades: string[] = [];
+  for (const pkg of candidates) {
+    if (pkg.version === null) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const latest = await fetchLatestVersion(cwd, pkg.name);
+    if (latest !== null && isBelow(pkg.version, latest)) {
+      downgrades.push(`${pkg.name}@${pkg.version} (latest is ${latest})`);
+    }
+  }
+  if (downgrades.length > 0) {
+    throw new Error(
+      `publishing would move the \`latest\` dist-tag back: ${downgrades.join(', ')} — set \`dist-tag\` (e.g. \`latest-3\`) when releasing an older line`,
     );
   }
 };
@@ -164,16 +168,30 @@ const appendStepSummary = async (
 export const runPublishMode = async (
   inputs: Inputs,
   client: GhClient,
-  publish: (cwd: string, publishBranch: string) => Promise<void> = execPublish,
+  publish: (
+    cwd: string,
+    publishBranch: string,
+    group: PublishGroup,
+  ) => Promise<void> = execPublish,
 ): Promise<void> => {
   const packages = await listWorkspacePackages(inputs.cwd);
   const released = await releasedByLedger(inputs.cwd);
-  guardPrereleases(packages, released, inputs.allowPrereleaseOnLatest);
-  if (await hasLanesConfigured(inputs.cwd)) {
-    core.warning(
-      '`versioning.lanes` is configured, but lane -> dist-tag mapping is not supported yet: lane prereleases would go to `latest`',
-    );
-  }
+  const releasedKeys = new Set(
+    released.map((entry) => releaseKey(entry.name, entry.version)),
+  );
+  const inRelease = (pkg: WorkspacePackage): boolean =>
+    pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version));
+  const { groups, untaggable } = planPublishGroups(packages, inputs.distTag);
+  guardUntaggable(untaggable, inRelease);
+  await guardLatestDowngrade(
+    inputs.cwd,
+    packages.filter(
+      (pkg) =>
+        !pkg.private &&
+        inRelease(pkg) &&
+        distTagFor(pkg.version ?? '', inputs.distTag) === 'latest',
+    ),
+  );
   const singlePackage = await isSinglePackageWorkspace(inputs.cwd, packages);
 
   // publish 中の intent GC で parked changelog が消える可能性があるため先に読む
@@ -202,12 +220,19 @@ export const runPublishMode = async (
 
   // 部分失敗でも summary から outputs を先に設定してから exit code を伝播する
   let publishError: unknown = null;
-  try {
-    await publish(inputs.cwd, inputs.baseBranch);
-  } catch (error) {
-    publishError = error;
+  const published: PublishedPackage[] = [];
+  for (const group of groups) {
+    try {
+      // tag ごとの publish は summary ファイルを上書きするため直列にして毎回読む
+      // eslint-disable-next-line no-await-in-loop
+      await publish(inputs.cwd, inputs.baseBranch, group);
+    } catch (error) {
+      publishError = error;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    published.push(...(await readPublishSummary(inputs.cwd)));
+    if (publishError !== null) break;
   }
-  const published = await readPublishSummary(inputs.cwd);
   core.setOutput('published', published.length > 0 ? 'true' : 'false');
   core.setOutput('published-packages', JSON.stringify(published));
   if (publishError !== null) {
@@ -287,6 +312,7 @@ export const runPublishMode = async (
         tag: target.tag,
         body: section ?? `Release ${target.name}@${target.version}.`,
         prerelease: target.version.includes('-'),
+        makeLatest: distTagFor(target.version, inputs.distTag) === 'latest',
       });
     }
   }

@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import * as core from '@actions/core';
 
 import type {
+  PublishGroup,
   PublishedPackage,
   WorkspacePackage,
 } from '../core/publish-plan.ts';
-import { runCommand } from '../proc.ts';
+import { asRecord } from '../core/records.ts';
+import { CommandError, runCommand } from '../proc.ts';
 
 export const listWorkspacePackages = async (
   cwd: string,
@@ -52,18 +54,51 @@ export const isSinglePackageWorkspace = async (
 const summaryPath = (cwd: string): string =>
   join(cwd, 'pnpm-publish-summary.json');
 
-// 内蔵 publish。dist-tag は指定しない（= latest。lane 対応は v1 の publish-command で）
 export const execPublish = async (
   cwd: string,
   publishBranch: string,
+  group: PublishGroup,
 ): Promise<void> => {
   await rm(summaryPath(cwd), { force: true });
   await runCommand(
     cwd,
     'pnpm',
-    ['publish', '-r', '--report-summary', '--publish-branch', publishBranch],
+    [
+      'publish',
+      '-r',
+      '--report-summary',
+      '--publish-branch',
+      publishBranch,
+      '--tag',
+      group.tag,
+      ...group.names.flatMap((name) => ['--filter', name]),
+    ],
     { stream: true },
   );
+};
+
+// pnpm view は未公開パッケージでも exit 1 で終わるため、404 だけはエラー JSON の
+// コードで見分けて「latest 無し」として扱う
+export const fetchLatestVersion = async (
+  cwd: string,
+  name: string,
+): Promise<string | null> => {
+  let stdout: string;
+  try {
+    stdout = await runCommand(cwd, 'pnpm', [
+      'view',
+      name,
+      'dist-tags',
+      '--json',
+    ]);
+  } catch (error) {
+    if (error instanceof CommandError && error.message.includes('_404')) {
+      return null;
+    }
+    throw error;
+  }
+  const latest = asRecord(JSON.parse(stdout))?.latest;
+  return typeof latest === 'string' ? latest : null;
 };
 
 // summary は部分失敗でも書かれうるので、publish の成否と独立に読む

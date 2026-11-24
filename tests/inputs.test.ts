@@ -33,7 +33,7 @@ describe('defaults', () => {
       commitMode: 'github-api',
       autoMerge: false,
       syncLockfile: true,
-      allowPrereleaseOnLatest: false,
+      distTag: 'latest',
       githubToken: 'ghs_dummy',
     });
   });
@@ -85,7 +85,7 @@ describe('explicit values', () => {
         'INPUT_COMMIT-MODE': 'git-cli',
         'INPUT_AUTO-MERGE': 'true',
         'INPUT_SYNC-LOCKFILE': 'false',
-        'INPUT_ALLOW-PRERELEASE-ON-LATEST': 'true',
+        'INPUT_DIST-TAG': 'latest-3',
       }),
     );
     expect(inputs.build).toBe('pnpm build');
@@ -100,7 +100,7 @@ describe('explicit values', () => {
     expect(inputs.commitMode).toBe('git-cli');
     expect(inputs.autoMerge).toBe(true);
     expect(inputs.syncLockfile).toBe(false);
-    expect(inputs.allowPrereleaseOnLatest).toBe(true);
+    expect(inputs.distTag).toBe('latest-3');
   });
 
   test('setup-git-user false keeps the ambient git config', () => {
@@ -221,6 +221,12 @@ describe('validation errors', () => {
   test('rejects a non-boolean sync-lockfile value', () => {
     expect(() => parseInputs(env({ 'INPUT_SYNC-LOCKFILE': 'yes' }))).toThrow(
       /sync-lockfile/u,
+    );
+  });
+
+  test('rejects a dist-tag that npm would read as a semver range', () => {
+    expect(() => parseInputs(env({ 'INPUT_DIST-TAG': 'v3' }))).toThrow(
+      /latest-3/u,
     );
   });
 

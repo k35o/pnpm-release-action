@@ -77,10 +77,14 @@ inputs:
     description: Run `pnpm install --lockfile-only` after versioning.
     required: false
     default: 'true'
-  allow-prerelease-on-latest:
-    description: Allow publishing a prerelease version to the `latest` dist-tag.
+  dist-tag:
+    description: >-
+      npm dist-tag for stable versions, e.g. `latest-3` when releasing an
+      older line from a maintenance branch. Prereleases always go to their
+      prerelease identifier (`2.0.0-beta.3` -> `beta`), which is the lane
+      name under `versioning.lanes`.
     required: false
-    default: 'false'
+    default: latest
   github-token:
     description: Token used for the release PR, tags, and GitHub Releases.
     required: false

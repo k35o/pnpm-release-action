@@ -11,7 +11,7 @@ pnpm owns the hard parts — change intents (`pnpm change`), the release plan wi
 Every run picks one of two modes by asking pnpm for the pending release plan (in a disposable git worktree, so your checkout is never touched):
 
 - **Pending intents → version mode.** Rebuilds `<branch-prefix><base-branch>` from the trigger commit, applies `pnpm version -r`, syncs the lockfile, and opens (or force-updates) a single release PR with the plan table and changelog previews.
-- **No intents → publish mode** (`mode-when-clean: publish`, the default). Runs your `build` command, then the built-in `pnpm publish -r --report-summary`, pushes a tag per released package, and creates GitHub Releases with the changelog as the body. Private packages are tagged too, via the committed ledger.
+- **No intents → publish mode** (`mode-when-clean: publish`, the default). Runs your `build` command, then the built-in `pnpm publish -r --report-summary` once per dist-tag, pushes a tag per released package, and creates GitHub Releases with the changelog as the body. Private packages are tagged too, via the committed ledger.
 
 Merging the release PR lands you in publish mode — that is the whole loop.
 
@@ -56,24 +56,24 @@ Use a GitHub App token (`actions/create-github-app-token`) rather than the defau
 
 ## Inputs
 
-| input                        | default                  | description                                                                                                                                            |
-| ---------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `build`                      | –                        | Command run before the built-in publish (e.g. `pnpm build`). Skipped when empty; never runs in version-PR mode                                         |
-| `commit-message`             | `chore: prepare release` | Version commit message                                                                                                                                 |
-| `pr-title`                   | `chore: prepare release` | Release PR title                                                                                                                                       |
-| `base-branch`                | triggering branch        | Base branch of the release PR. Required explicitly on non-branch triggers                                                                              |
-| `branch-prefix`              | `pnpm-release/`          | Release branch is `<branch-prefix><base-branch>`                                                                                                       |
-| `cwd`                        | workspace root           | Working directory of the pnpm workspace (repo subdirectories supported)                                                                                |
-| `setup-git-user`             | `true`                   | `true` (github-actions bot) / `false` (keep ambient config) / `app` (resolve the bot user of `app-slug`)                                               |
-| `app-slug`                   | –                        | App slug output of `actions/create-github-app-token`; required with `setup-git-user: app`                                                              |
-| `create-github-releases`     | `true`                   | Create a GitHub Release per released package                                                                                                           |
-| `push-git-tags`              | `true`                   | Push tags (`v<version>` for single-package repos, `<name>@<version>` for monorepos)                                                                    |
-| `mode-when-clean`            | `publish`                | `publish` or `none` when no intents are pending                                                                                                        |
-| `commit-mode`                | `github-api`             | `github-api` creates the version commit via the API — GitHub signs it, satisfying required-signature rules. `git-cli` commits and force-pushes locally |
-| `auto-merge`                 | `false`                  | Arm GitHub auto-merge (merge commit) on the release PR                                                                                                 |
-| `sync-lockfile`              | `true`                   | Run `pnpm install --lockfile-only` after versioning                                                                                                    |
-| `allow-prerelease-on-latest` | `false`                  | Allow prereleases in the release to reach the `latest` dist-tag                                                                                        |
-| `github-token`               | `github.token`           | Token for git pushes, the release PR, tags, and Releases                                                                                               |
+| input                    | default                  | description                                                                                                                                            |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `build`                  | –                        | Command run before the built-in publish (e.g. `pnpm build`). Skipped when empty; never runs in version-PR mode                                         |
+| `commit-message`         | `chore: prepare release` | Version commit message                                                                                                                                 |
+| `pr-title`               | `chore: prepare release` | Release PR title                                                                                                                                       |
+| `base-branch`            | triggering branch        | Base branch of the release PR. Required explicitly on non-branch triggers                                                                              |
+| `branch-prefix`          | `pnpm-release/`          | Release branch is `<branch-prefix><base-branch>`                                                                                                       |
+| `cwd`                    | workspace root           | Working directory of the pnpm workspace (repo subdirectories supported)                                                                                |
+| `setup-git-user`         | `true`                   | `true` (github-actions bot) / `false` (keep ambient config) / `app` (resolve the bot user of `app-slug`)                                               |
+| `app-slug`               | –                        | App slug output of `actions/create-github-app-token`; required with `setup-git-user: app`                                                              |
+| `create-github-releases` | `true`                   | Create a GitHub Release per released package                                                                                                           |
+| `push-git-tags`          | `true`                   | Push tags (`v<version>` for single-package repos, `<name>@<version>` for monorepos)                                                                    |
+| `mode-when-clean`        | `publish`                | `publish` or `none` when no intents are pending                                                                                                        |
+| `commit-mode`            | `github-api`             | `github-api` creates the version commit via the API — GitHub signs it, satisfying required-signature rules. `git-cli` commits and force-pushes locally |
+| `auto-merge`             | `false`                  | Arm GitHub auto-merge (merge commit) on the release PR                                                                                                 |
+| `sync-lockfile`          | `true`                   | Run `pnpm install --lockfile-only` after versioning                                                                                                    |
+| `dist-tag`               | `latest`                 | npm dist-tag for stable versions (e.g. `latest-3` on a maintenance branch). Prereleases always use their prerelease identifier                         |
+| `github-token`           | `github.token`           | Token for git pushes, the release PR, tags, and Releases                                                                                               |
 
 changesets/action input names (`publish`, `setupGitUser`, …) are intentionally not supported — they fail with guidance toward the replacement.
 
@@ -86,6 +86,32 @@ changesets/action input names (`publish`, `setupGitUser`, …) are intentionally
 | `published-packages`  | JSON array of `{ name, version }`                |
 | `has-pending-changes` | `"true"` when the release plan was non-empty     |
 | `pr-number`           | Release PR number (empty outside version mode)   |
+
+## Prereleases and maintenance branches
+
+Stable versions go to the `dist-tag` input (`latest` by default). A prerelease goes to its prerelease identifier, so `2.0.0-beta.3` lands on `beta` — with [lanes](https://pnpm.io/cli/lane), that is the lane name. Its GitHub Release is marked as a prerelease and never becomes the repository's Latest release. A release that mixes main-lane and lane packages publishes once per dist-tag.
+
+To ship a beta of the next major, move the package onto a lane; the next release PR carries `X.Y.Z-beta.N` versions:
+
+```sh
+pnpm lane beta --filter <package>   # release PRs now produce prereleases
+pnpm lane main --filter <package>   # graduate: the next release is the stable X.Y.Z
+```
+
+To keep fixing an older major while `main` moves on, cut a branch from its last tag and run the same workflow on it. Once the newer major owns `latest`, give the old line its own dist-tag:
+
+```yaml
+on:
+  push:
+    branches: [main, v3]
+# ...
+- uses: k35o/pnpm-release-action@<sha>
+  with:
+    build: pnpm build
+    dist-tag: ${{ github.ref_name == 'v3' && 'latest-3' || 'latest' }}
+```
+
+Publish mode refuses to move `latest` below the version already on it, so forgetting `dist-tag` on the maintenance branch fails the run instead of downgrading every install. Releases published under another dist-tag do not become the repository's Latest release either. npm rejects dist-tags that read as a semver range (`v3`, `3.x`), and so does this action — for the input and for prerelease identifiers.
 
 ## Requirements
 
