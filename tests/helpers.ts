@@ -63,7 +63,13 @@ export const startFakeRegistry = async (
         ? JSON.stringify({
             name,
             'dist-tags': { latest },
-            versions: { [latest]: { name, version: latest } },
+            versions: {
+              [latest]: {
+                name,
+                version: latest,
+                dist: { tarball: `http://registry/${name}-${latest}.tgz` },
+              },
+            },
           })
         : '{"error":"Not found"}',
     );

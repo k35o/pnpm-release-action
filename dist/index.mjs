@@ -27668,6 +27668,41 @@ const buildReleaseTargets = (published, ledgerNew, singlePackage) => {
 	}
 	return targets;
 };
+// src/core/semver.ts
+const parseVersion = (version) => {
+	const match = /^(\d+)\.(\d+)\.(\d+)(-)?/u.exec(version.trim());
+	if (match === null) return null;
+	return {
+		triple: [
+			Number(match[1]),
+			Number(match[2]),
+			Number(match[3])
+		],
+		prerelease: match[4] !== void 0
+	};
+};
+const compareVersions = (a, b) => {
+	const left = parseVersion(a);
+	const right = parseVersion(b);
+	if (left === null || right === null) return null;
+	for (const index of [
+		0,
+		1,
+		2
+	]) {
+		const diff = left.triple[index] - right.triple[index];
+		if (diff !== 0) return diff;
+	}
+	return Number(right.prerelease) - Number(left.prerelease);
+};
+const satisfiesMinimum = (version, minimum) => {
+	const order = compareVersions(version, minimum);
+	return order !== null && order >= 0;
+};
+const isBelow = (version, other) => {
+	const order = compareVersions(version, other);
+	return order !== null && order < 0;
+};
 // src/proc.ts
 var CommandError = class extends Error {
 	constructor(message) {
@@ -27938,6 +27973,22 @@ const execPublish = async (cwd, publishBranch, group) => {
 		...group.names.flatMap((name) => ["--filter", name])
 	], { stream: true });
 };
+const fetchLatestVersion = async (cwd, name) => {
+	let stdout;
+	try {
+		stdout = await runCommand(cwd, "pnpm", [
+			"view",
+			name,
+			"dist-tags",
+			"--json"
+		]);
+	} catch (error) {
+		if (error instanceof CommandError && error.message.includes("_404")) return null;
+		throw error;
+	}
+	const latest = asRecord(JSON.parse(stdout))?.latest;
+	return typeof latest === "string" ? latest : null;
+};
 const readPublishSummary = async (cwd) => {
 	let raw;
 	try {
@@ -27994,6 +28045,15 @@ const guardUntaggable = (untaggable, inRelease) => {
 	if (blocking.length > 0) throw new Error(`no dist-tag can be derived from these prerelease versions: ${describe(blocking)} — the prerelease identifier becomes the dist-tag, so it must not be numeric, \`latest\`, or readable as a semver range (use a lane name such as \`beta\`)`);
 	if (untaggable.length > 0) warning(`skipping prerelease versions that are not part of this release and have no usable dist-tag: ${describe(untaggable)}`);
 };
+const guardLatestDowngrade = async (cwd, candidates) => {
+	const downgrades = [];
+	for (const pkg of candidates) {
+		if (pkg.version === null) continue;
+		const latest = await fetchLatestVersion(cwd, pkg.name);
+		if (latest !== null && isBelow(pkg.version, latest)) downgrades.push(`${pkg.name}@${pkg.version} (latest is ${latest})`);
+	}
+	if (downgrades.length > 0) throw new Error(`publishing would move the \`latest\` dist-tag back: ${downgrades.join(", ")} — set \`dist-tag\` (e.g. \`latest-3\`) when releasing an older line`);
+};
 const appendStepSummary = async (published, targets) => {
 	if (process.env.GITHUB_STEP_SUMMARY === void 0) return;
 	const lines = [
@@ -28015,6 +28075,7 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 	const inRelease = (pkg) => pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version));
 	const { groups, untaggable } = planPublishGroups(packages, inputs.distTag);
 	guardUntaggable(untaggable, inRelease);
+	await guardLatestDowngrade(inputs.cwd, packages.filter((pkg) => !pkg.private && inRelease(pkg) && distTagFor(pkg.version ?? "", inputs.distTag) === "latest"));
 	const singlePackage = await isSinglePackageWorkspace(inputs.cwd, packages);
 	const previews = await collectChangelogPreviews(inputs.cwd, released.map((entry) => ({
 		name: entry.name,
@@ -28299,33 +28360,6 @@ const runVersionMode = async (inputs, client) => {
 		if (inputs.commitMode === "github-api") await restoreCleanTree(toplevel).catch(() => void 0);
 		await checkout(inputs.cwd, originalRef).catch(() => void 0);
 	}
-};
-// src/core/semver.ts
-const parseVersion = (version) => {
-	const match = /^(\d+)\.(\d+)\.(\d+)(-)?/u.exec(version.trim());
-	if (match === null) return null;
-	return {
-		triple: [
-			Number(match[1]),
-			Number(match[2]),
-			Number(match[3])
-		],
-		prerelease: match[4] !== void 0
-	};
-};
-const satisfiesMinimum = (version, minimum) => {
-	const actual = parseVersion(version);
-	const floor = parseVersion(minimum);
-	if (actual === null || floor === null) return false;
-	for (const index of [
-		0,
-		1,
-		2
-	]) {
-		if (actual.triple[index] > floor.triple[index]) return true;
-		if (actual.triple[index] < floor.triple[index]) return false;
-	}
-	return !actual.prerelease;
 };
 // src/pnpm/preflight.ts
 const MIN_PNPM_VERSION = "12.7.0";

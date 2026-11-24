@@ -219,6 +219,32 @@ test('the dist-tag input routes a stable release elsewhere', async () => {
   expect(groups).toStrictEqual([{ tag: 'latest-0', names: ['fixture-pkg'] }]);
 });
 
+test('a stable release below the registry latest aborts before publishing', async () => {
+  const dir = await versionedFixture('0.9.0', { version: '1.0.0' });
+  const { client, releases } = makeFakeClient();
+  const { publish, groups } = recordingPublish();
+
+  await expect(
+    runPublishMode(makeInputs(dir), client, publish),
+  ).rejects.toThrow(/move the `latest` dist-tag back/u);
+  expect(groups).toHaveLength(0);
+  expect(releases).toHaveLength(0);
+});
+
+test('a maintenance dist-tag releases an older line below the registry latest', async () => {
+  const dir = await versionedFixture('0.9.0', { version: '1.0.0' });
+  const { client } = makeFakeClient();
+  const { publish, groups } = recordingPublish();
+
+  await runPublishMode(
+    { ...makeInputs(dir), distTag: 'latest-0' },
+    client,
+    publish,
+  );
+
+  expect(groups).toStrictEqual([{ tag: 'latest-0', names: ['fixture-pkg'] }]);
+});
+
 test('a lane prerelease goes to its lane dist-tag', async () => {
   const dir = await versionedFixture('1.5.0-alpha.0', { published: false });
   const { client, releases } = makeFakeClient();

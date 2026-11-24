@@ -8,7 +8,8 @@ import type {
   PublishedPackage,
   WorkspacePackage,
 } from '../core/publish-plan.ts';
-import { runCommand } from '../proc.ts';
+import { asRecord } from '../core/records.ts';
+import { CommandError, runCommand } from '../proc.ts';
 
 export const listWorkspacePackages = async (
   cwd: string,
@@ -74,6 +75,30 @@ export const execPublish = async (
     ],
     { stream: true },
   );
+};
+
+// pnpm view は未公開パッケージでも exit 1 で終わるため、404 だけはエラー JSON の
+// コードで見分けて「latest 無し」として扱う
+export const fetchLatestVersion = async (
+  cwd: string,
+  name: string,
+): Promise<string | null> => {
+  let stdout: string;
+  try {
+    stdout = await runCommand(cwd, 'pnpm', [
+      'view',
+      name,
+      'dist-tags',
+      '--json',
+    ]);
+  } catch (error) {
+    if (error instanceof CommandError && error.message.includes('_404')) {
+      return null;
+    }
+    throw error;
+  }
+  const latest = asRecord(JSON.parse(stdout))?.latest;
+  return typeof latest === 'string' ? latest : null;
 };
 
 // summary は部分失敗でも書かれうるので、publish の成否と独立に読む

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 
 import * as core from '@actions/core';
 
+import { distTagFor } from '../core/dist-tag.ts';
 import type { Inputs } from '../core/inputs.ts';
 import { releaseKey } from '../core/keys.ts';
 import { diffLedger, parseLedger } from '../core/ledger.ts';
@@ -17,6 +18,7 @@ import type {
   ReleaseTarget,
   WorkspacePackage,
 } from '../core/publish-plan.ts';
+import { isBelow } from '../core/semver.ts';
 import type { GhClient } from '../gh/client.ts';
 import {
   commitExists,
@@ -32,6 +34,7 @@ import {
 import { collectChangelogPreviews } from '../pnpm/changelogs.ts';
 import {
   execPublish,
+  fetchLatestVersion,
   isSinglePackageWorkspace,
   listWorkspacePackages,
   readPublishSummary,
@@ -120,6 +123,26 @@ const guardUntaggable = (
   }
 };
 
+const guardLatestDowngrade = async (
+  cwd: string,
+  candidates: readonly WorkspacePackage[],
+): Promise<void> => {
+  const downgrades: string[] = [];
+  for (const pkg of candidates) {
+    if (pkg.version === null) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const latest = await fetchLatestVersion(cwd, pkg.name);
+    if (latest !== null && isBelow(pkg.version, latest)) {
+      downgrades.push(`${pkg.name}@${pkg.version} (latest is ${latest})`);
+    }
+  }
+  if (downgrades.length > 0) {
+    throw new Error(
+      `publishing would move the \`latest\` dist-tag back: ${downgrades.join(', ')} — set \`dist-tag\` (e.g. \`latest-3\`) when releasing an older line`,
+    );
+  }
+};
+
 const appendStepSummary = async (
   published: ReadonlyArray<{ name: string; version: string }>,
   targets: readonly ReleaseTarget[],
@@ -160,6 +183,15 @@ export const runPublishMode = async (
     pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version));
   const { groups, untaggable } = planPublishGroups(packages, inputs.distTag);
   guardUntaggable(untaggable, inRelease);
+  await guardLatestDowngrade(
+    inputs.cwd,
+    packages.filter(
+      (pkg) =>
+        !pkg.private &&
+        inRelease(pkg) &&
+        distTagFor(pkg.version ?? '', inputs.distTag) === 'latest',
+    ),
+  );
   const singlePackage = await isSinglePackageWorkspace(inputs.cwd, packages);
 
   // publish 中の intent GC で parked changelog が消える可能性があるため先に読む
