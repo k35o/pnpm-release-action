@@ -87,6 +87,32 @@ changesets/action input names (`publish`, `setupGitUser`, …) are intentionally
 | `has-pending-changes` | `"true"` when the release plan was non-empty     |
 | `pr-number`           | Release PR number (empty outside version mode)   |
 
+## Prereleases and maintenance branches
+
+Stable versions go to the `dist-tag` input (`latest` by default). A prerelease goes to its prerelease identifier, so `2.0.0-beta.3` lands on `beta` — with [lanes](https://pnpm.io/cli/lane), that is the lane name. Its GitHub Release is marked as a prerelease and never becomes the repository's Latest release. A release that mixes main-lane and lane packages publishes once per dist-tag.
+
+To ship a beta of the next major, move the package onto a lane; the next release PR carries `X.Y.Z-beta.N` versions:
+
+```sh
+pnpm lane beta --filter <package>   # release PRs now produce prereleases
+pnpm lane main --filter <package>   # graduate: the next release is the stable X.Y.Z
+```
+
+To keep fixing an older major while `main` moves on, cut a branch from its last tag and run the same workflow on it. Once the newer major owns `latest`, give the old line its own dist-tag:
+
+```yaml
+on:
+  push:
+    branches: [main, v3]
+# ...
+- uses: k35o/pnpm-release-action@<sha>
+  with:
+    build: pnpm build
+    dist-tag: ${{ github.ref_name == 'v3' && 'latest-3' || 'latest' }}
+```
+
+Publish mode refuses to move `latest` below the version already on it, so forgetting `dist-tag` on the maintenance branch fails the run instead of downgrading every install. Releases published under another dist-tag do not become the repository's Latest release either. npm rejects dist-tags that read as a semver range (`v3`, `3.x`), and so does this action — for the input and for prerelease identifiers.
+
 ## Requirements
 
 - pnpm **>= 12.7.0** on `PATH` before this action runs
