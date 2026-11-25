@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 import * as core from '@actions/core';
 
@@ -33,13 +34,33 @@ import {
 } from '../git/repo.ts';
 import { collectChangelogPreviews } from '../pnpm/changelogs.ts';
 import {
-  execPublish,
+  execStagePublish,
   fetchLatestVersion,
+  fetchPublishedVersions,
   isSinglePackageWorkspace,
   listWorkspacePackages,
-  readPublishSummary,
+  readStageSummary,
 } from '../pnpm/publish.ts';
 import { runCommand } from '../proc.ts';
+
+const APPROVAL_PAGE = 'https://www.npmjs.com/settings/~/staged-packages';
+
+export type PublishModeDeps = {
+  readonly stage: (
+    cwd: string,
+    publishBranch: string,
+    group: PublishGroup,
+  ) => Promise<void>;
+  readonly approvalWait: {
+    readonly timeoutMs: number;
+    readonly intervalMs: number;
+  };
+};
+
+const defaultDeps: PublishModeDeps = {
+  stage: execStagePublish,
+  approvalWait: { timeoutMs: 30 * 60_000, intervalMs: 15_000 },
+};
 
 // push イベントでは payload の before が push 前のリモート先端。multi-commit の
 // 直 push だと HEAD^ は同じ push 内の中間コミットになり差分を取りこぼすため、
@@ -101,8 +122,16 @@ const releasedByLedger = async (cwd: string): Promise<LedgerEntry[]> => {
   );
 };
 
-const describe = (packages: readonly WorkspacePackage[]): string =>
+const describe = (
+  packages: ReadonlyArray<{
+    readonly name: string;
+    readonly version: string | null;
+  }>,
+): string =>
   packages.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(', ');
+
+const minutes = (ms: number): string =>
+  `${String(Math.round(ms / 60_000))} minutes`;
 
 // dist-tag を決められない prerelease のうち、このリリースのものはエラー。過去の
 // 残置や手動バンプは誤ブロックを避けて publish から外し warning に留める
@@ -125,11 +154,10 @@ const guardUntaggable = (
 
 const guardLatestDowngrade = async (
   cwd: string,
-  candidates: readonly WorkspacePackage[],
+  candidates: readonly PublishedPackage[],
 ): Promise<void> => {
   const downgrades: string[] = [];
   for (const pkg of candidates) {
-    if (pkg.version === null) continue;
     // eslint-disable-next-line no-await-in-loop
     const latest = await fetchLatestVersion(cwd, pkg.name);
     if (latest !== null && isBelow(pkg.version, latest)) {
@@ -139,6 +167,74 @@ const guardLatestDowngrade = async (
   if (downgrades.length > 0) {
     throw new Error(
       `publishing would move the \`latest\` dist-tag back: ${downgrades.join(', ')} — set \`dist-tag\` (e.g. \`latest-3\`) when releasing an older line`,
+    );
+  }
+};
+
+const notOnRegistry = async (
+  cwd: string,
+  packages: readonly PublishedPackage[],
+): Promise<PublishedPackage[]> => {
+  const names = [...new Set(packages.map((pkg) => pkg.name))];
+  const publishedByName = new Map(
+    await Promise.all(
+      names.map(
+        async (name) =>
+          [name, new Set(await fetchPublishedVersions(cwd, name))] as const,
+      ),
+    ),
+  );
+  return packages.filter(
+    (pkg) => publishedByName.get(pkg.name)?.has(pkg.version) !== true,
+  );
+};
+
+const announceStaged = async (
+  staged: readonly PublishedPackage[],
+  timeoutMs: number,
+): Promise<void> => {
+  core.warning(
+    `Approve ${describe(staged)} with 2FA at ${APPROVAL_PAGE} (or \`npm stage approve <stage-id>\`). This run waits up to ${minutes(timeoutMs)} for npm to publish them before it pushes tags and creates GitHub Releases.`,
+    { title: 'Staged on npm: waiting for approval' },
+  );
+  if (process.env.GITHUB_STEP_SUMMARY === undefined) return;
+  const lines = [
+    '### Staged on npm',
+    '',
+    `Publishing these versions needs a maintainer's approval with 2FA, on [Staged Packages](${APPROVAL_PAGE}) or with \`npm stage list\` and \`npm stage approve <stage-id>\`. The run waits up to ${minutes(timeoutMs)} before it pushes tags and creates GitHub Releases; after a timeout, approve the versions and re-run the job.`,
+    '',
+    publishedTable(staged),
+    '',
+  ];
+  core.summary.addRaw(lines.join('\n'), true);
+  await core.summary.write();
+};
+
+// npm は stage した版を、メンテナーが 2FA で承認するまで packument に載せない。
+// 承認は OIDC ではできず npm からの通知も無いため、案内を出してから registry を見に行く
+const waitForApproval = async (
+  cwd: string,
+  versions: readonly PublishedPackage[],
+  wait: PublishModeDeps['approvalWait'],
+): Promise<void> => {
+  let pending = await notOnRegistry(cwd, versions);
+  if (pending.length === 0) return;
+  await announceStaged(pending, wait.timeoutMs);
+  const deadline = Date.now() + wait.timeoutMs;
+  while (pending.length > 0 && Date.now() < deadline) {
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(wait.intervalMs);
+    // eslint-disable-next-line no-await-in-loop
+    const remaining = await notOnRegistry(cwd, pending);
+    const approved = pending.filter((pkg) => !remaining.includes(pkg));
+    if (approved.length > 0) {
+      core.info(`Published on npm: ${describe(approved)}`);
+    }
+    pending = remaining;
+  }
+  if (pending.length > 0) {
+    throw new Error(
+      `these staged versions were not approved within ${minutes(wait.timeoutMs)}: ${describe(pending)} — approve them at ${APPROVAL_PAGE}, then re-run this job to push the tags and create the GitHub Releases`,
     );
   }
 };
@@ -168,11 +264,7 @@ const appendStepSummary = async (
 export const runPublishMode = async (
   inputs: Inputs,
   client: GhClient,
-  publish: (
-    cwd: string,
-    publishBranch: string,
-    group: PublishGroup,
-  ) => Promise<void> = execPublish,
+  deps: PublishModeDeps = defaultDeps,
 ): Promise<void> => {
   const packages = await listWorkspacePackages(inputs.cwd);
   const released = await releasedByLedger(inputs.cwd);
@@ -181,15 +273,17 @@ export const runPublishMode = async (
   );
   const inRelease = (pkg: WorkspacePackage): boolean =>
     pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version));
+  const releasedPublic = packages.flatMap((pkg) =>
+    !pkg.private && pkg.version !== null && inRelease(pkg)
+      ? [{ name: pkg.name, version: pkg.version }]
+      : [],
+  );
   const { groups, untaggable } = planPublishGroups(packages, inputs.distTag);
   guardUntaggable(untaggable, inRelease);
   await guardLatestDowngrade(
     inputs.cwd,
-    packages.filter(
-      (pkg) =>
-        !pkg.private &&
-        inRelease(pkg) &&
-        distTagFor(pkg.version ?? '', inputs.distTag) === 'latest',
+    releasedPublic.filter(
+      (pkg) => distTagFor(pkg.version, inputs.distTag) === 'latest',
     ),
   );
   const singlePackage = await isSinglePackageWorkspace(inputs.cwd, packages);
@@ -210,7 +304,7 @@ export const runPublishMode = async (
     const status = await statusPorcelain(inputs.cwd);
     if (status !== '') {
       throw new Error(
-        `the \`build\` command left the working tree dirty, which would fail pnpm's publish git checks — gitignore build outputs or make the build reproduce committed files exactly:\n${status
+        `the \`build\` command left the working tree dirty, which would fail the git checks of \`pnpm stage publish\` — gitignore build outputs or make the build reproduce committed files exactly:\n${status
           .split('\n')
           .slice(0, 10)
           .join('\n')}`,
@@ -218,28 +312,29 @@ export const runPublishMode = async (
     }
   }
 
-  // 部分失敗でも summary から outputs を先に設定してから exit code を伝播する
-  let publishError: unknown = null;
-  const published: PublishedPackage[] = [];
+  const staged: PublishedPackage[] = [];
   for (const group of groups) {
-    try {
-      // tag ごとの publish は summary ファイルを上書きするため直列にして毎回読む
-      // eslint-disable-next-line no-await-in-loop
-      await publish(inputs.cwd, inputs.baseBranch, group);
-    } catch (error) {
-      publishError = error;
-    }
+    // tag ごとの stage は summary ファイルを上書きするため直列にして毎回読む
     // eslint-disable-next-line no-await-in-loop
-    published.push(...(await readPublishSummary(inputs.cwd)));
-    if (publishError !== null) break;
+    await deps.stage(inputs.cwd, inputs.baseBranch, group);
+    // eslint-disable-next-line no-await-in-loop
+    staged.push(...(await readStageSummary(inputs.cwd)));
   }
+
+  // 承認が時間切れになった後の re-run では、承認済みの版の stage を pnpm が
+  // 飛ばして summary に載らない。このリリースの版も公開を確かめる対象に含め、
+  // re-run がタグと outputs を回収できるようにする
+  const published = [
+    ...new Map(
+      [...staged, ...releasedPublic].map((pkg) => [
+        releaseKey(pkg.name, pkg.version),
+        pkg,
+      ]),
+    ).values(),
+  ];
+  await waitForApproval(inputs.cwd, published, deps.approvalWait);
   core.setOutput('published', published.length > 0 ? 'true' : 'false');
   core.setOutput('published-packages', JSON.stringify(published));
-  if (publishError !== null) {
-    throw publishError instanceof Error
-      ? publishError
-      : new Error(JSON.stringify(publishError));
-  }
 
   const targets = buildReleaseTargets(published, released, singlePackage);
   if (targets.length === 0) {

@@ -11,6 +11,7 @@ import { StringDecoder } from "string_decoder";
 import * as child from "child_process";
 import { setTimeout as setTimeout$1 } from "timers";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { setTimeout as setTimeout$2 } from "node:timers/promises";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 // \0rolldown/runtime.js
@@ -29108,9 +29109,10 @@ const isSinglePackageWorkspace = async (cwd, packages) => {
 	return await realpath(only.path) === await realpath(cwd);
 };
 const summaryPath = (cwd) => join(cwd, "pnpm-publish-summary.json");
-const execPublish = async (cwd, publishBranch, group) => {
+const execStagePublish = async (cwd, publishBranch, group) => {
 	await rm(summaryPath(cwd), { force: true });
 	await runCommand(cwd, "pnpm", [
+		"stage",
 		"publish",
 		"-r",
 		"--report-summary",
@@ -29121,46 +29123,53 @@ const execPublish = async (cwd, publishBranch, group) => {
 		...group.names.flatMap((name) => ["--filter", name])
 	], { stream: true });
 };
-const fetchLatestVersion = async (cwd, name) => {
+const viewPackage = async (cwd, name, field) => {
 	let stdout;
 	try {
 		stdout = await runCommand(cwd, "pnpm", [
 			"view",
 			name,
-			"dist-tags",
+			field,
 			"--json"
 		]);
 	} catch (error) {
 		if (error instanceof CommandError && error.message.includes("_404")) return null;
 		throw error;
 	}
-	const latest = asRecord(JSON.parse(stdout))?.latest;
+	return JSON.parse(stdout);
+};
+const fetchLatestVersion = async (cwd, name) => {
+	const latest = asRecord(await viewPackage(cwd, name, "dist-tags"))?.latest;
 	return typeof latest === "string" ? latest : null;
 };
-const readPublishSummary = async (cwd) => {
-	let raw;
-	try {
-		raw = await readFile(summaryPath(cwd), "utf8");
-	} catch {
-		return [];
+const fetchPublishedVersions = async (cwd, name) => {
+	const versions = await viewPackage(cwd, name, "versions");
+	if (versions === null) return [];
+	if (!Array.isArray(versions)) throw new TypeError(`expected a JSON array from \`pnpm view ${name} versions --json\``);
+	return versions.filter((version) => typeof version === "string");
+};
+const readStageSummary = async (cwd) => {
+	const list = asRecord(JSON.parse(await readFile(summaryPath(cwd), "utf8")))?.publishedPackages;
+	if (!Array.isArray(list)) throw new TypeError("expected a `publishedPackages` array in pnpm-publish-summary.json");
+	const staged = [];
+	for (const entry of list) {
+		const record = asRecord(entry);
+		if (typeof record?.name === "string" && typeof record.version === "string") staged.push({
+			name: record.name,
+			version: record.version
+		});
 	}
-	let parsed;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		warning("pnpm-publish-summary.json could not be parsed: treating it as empty");
-		return [];
-	}
-	const list = typeof parsed === "object" && parsed !== null ? parsed.publishedPackages : null;
-	if (!Array.isArray(list)) return [];
-	const published = [];
-	for (const entry of list) if (typeof entry.name === "string" && typeof entry.version === "string") published.push({
-		name: entry.name,
-		version: entry.version
-	});
-	return published;
+	return staged;
 };
 // src/modes/publish.ts
+const APPROVAL_PAGE = "https://www.npmjs.com/settings/~/staged-packages";
+const defaultDeps = {
+	stage: execStagePublish,
+	approvalWait: {
+		timeoutMs: 18e5,
+		intervalMs: 15e3
+	}
+};
 const pushBaseSha = async (cwd) => {
 	if (process.env.GITHUB_EVENT_NAME !== "push") return null;
 	const eventPath = process.env.GITHUB_EVENT_PATH;
@@ -29188,6 +29197,7 @@ const releasedByLedger = async (cwd) => {
 	return diffLedger(current, parseLedger(await readFileAtRev(cwd, "HEAD^", ledgerPath)));
 };
 const describe = (packages) => packages.map((pkg) => `${pkg.name}@${String(pkg.version)}`).join(", ");
+const minutes = (ms) => `${String(Math.round(ms / 6e4))} minutes`;
 const guardUntaggable = (untaggable, inRelease) => {
 	const blocking = untaggable.filter((pkg) => inRelease(pkg));
 	if (blocking.length > 0) throw new Error(`no dist-tag can be derived from these prerelease versions: ${describe(blocking)} — the prerelease identifier becomes the dist-tag, so it must not be numeric, \`latest\`, or readable as a semver range (use a lane name such as \`beta\`)`);
@@ -29196,11 +29206,43 @@ const guardUntaggable = (untaggable, inRelease) => {
 const guardLatestDowngrade = async (cwd, candidates) => {
 	const downgrades = [];
 	for (const pkg of candidates) {
-		if (pkg.version === null) continue;
 		const latest = await fetchLatestVersion(cwd, pkg.name);
 		if (latest !== null && isBelow(pkg.version, latest)) downgrades.push(`${pkg.name}@${pkg.version} (latest is ${latest})`);
 	}
 	if (downgrades.length > 0) throw new Error(`publishing would move the \`latest\` dist-tag back: ${downgrades.join(", ")} — set \`dist-tag\` (e.g. \`latest-3\`) when releasing an older line`);
+};
+const notOnRegistry = async (cwd, packages) => {
+	const names = [...new Set(packages.map((pkg) => pkg.name))];
+	const publishedByName = new Map(await Promise.all(names.map(async (name) => [name, new Set(await fetchPublishedVersions(cwd, name))])));
+	return packages.filter((pkg) => publishedByName.get(pkg.name)?.has(pkg.version) !== true);
+};
+const announceStaged = async (staged, timeoutMs) => {
+	warning(`Approve ${describe(staged)} with 2FA at ${APPROVAL_PAGE} (or \`npm stage approve <stage-id>\`). This run waits up to ${minutes(timeoutMs)} for npm to publish them before it pushes tags and creates GitHub Releases.`, { title: "Staged on npm: waiting for approval" });
+	if (process.env.GITHUB_STEP_SUMMARY === void 0) return;
+	const lines = [
+		"### Staged on npm",
+		"",
+		`Publishing these versions needs a maintainer's approval with 2FA, on [Staged Packages](${APPROVAL_PAGE}) or with \`npm stage list\` and \`npm stage approve <stage-id>\`. The run waits up to ${minutes(timeoutMs)} before it pushes tags and creates GitHub Releases; after a timeout, approve the versions and re-run the job.`,
+		"",
+		publishedTable(staged),
+		""
+	];
+	summary.addRaw(lines.join("\n"), true);
+	await summary.write();
+};
+const waitForApproval = async (cwd, versions, wait) => {
+	let pending = await notOnRegistry(cwd, versions);
+	if (pending.length === 0) return;
+	await announceStaged(pending, wait.timeoutMs);
+	const deadline = Date.now() + wait.timeoutMs;
+	while (pending.length > 0 && Date.now() < deadline) {
+		await setTimeout$2(wait.intervalMs);
+		const remaining = await notOnRegistry(cwd, pending);
+		const approved = pending.filter((pkg) => !remaining.includes(pkg));
+		if (approved.length > 0) info(`Published on npm: ${describe(approved)}`);
+		pending = remaining;
+	}
+	if (pending.length > 0) throw new Error(`these staged versions were not approved within ${minutes(wait.timeoutMs)}: ${describe(pending)} — approve them at ${APPROVAL_PAGE}, then re-run this job to push the tags and create the GitHub Releases`);
 };
 const appendStepSummary = async (published, targets) => {
 	if (process.env.GITHUB_STEP_SUMMARY === void 0) return;
@@ -29216,14 +29258,18 @@ const appendStepSummary = async (published, targets) => {
 	summary.addRaw(lines.join("\n"), true);
 	await summary.write();
 };
-const runPublishMode = async (inputs, client, publish = execPublish) => {
+const runPublishMode = async (inputs, client, deps = defaultDeps) => {
 	const packages = await listWorkspacePackages(inputs.cwd);
 	const released = await releasedByLedger(inputs.cwd);
 	const releasedKeys = new Set(released.map((entry) => releaseKey(entry.name, entry.version)));
 	const inRelease = (pkg) => pkg.version !== null && releasedKeys.has(releaseKey(pkg.name, pkg.version));
+	const releasedPublic = packages.flatMap((pkg) => !pkg.private && pkg.version !== null && inRelease(pkg) ? [{
+		name: pkg.name,
+		version: pkg.version
+	}] : []);
 	const { groups, untaggable } = planPublishGroups(packages, inputs.distTag);
 	guardUntaggable(untaggable, inRelease);
-	await guardLatestDowngrade(inputs.cwd, packages.filter((pkg) => !pkg.private && inRelease(pkg) && distTagFor(pkg.version ?? "", inputs.distTag) === "latest"));
+	await guardLatestDowngrade(inputs.cwd, releasedPublic.filter((pkg) => distTagFor(pkg.version, inputs.distTag) === "latest"));
 	const singlePackage = await isSinglePackageWorkspace(inputs.cwd, packages);
 	const previews = await collectChangelogPreviews(inputs.cwd, released.map((entry) => ({
 		name: entry.name,
@@ -29235,22 +29281,17 @@ const runPublishMode = async (inputs, client, publish = execPublish) => {
 			stream: true
 		});
 		const status = await statusPorcelain(inputs.cwd);
-		if (status !== "") throw new Error(`the \`build\` command left the working tree dirty, which would fail pnpm's publish git checks — gitignore build outputs or make the build reproduce committed files exactly:\n${status.split("\n").slice(0, 10).join("\n")}`);
+		if (status !== "") throw new Error(`the \`build\` command left the working tree dirty, which would fail the git checks of \`pnpm stage publish\` — gitignore build outputs or make the build reproduce committed files exactly:\n${status.split("\n").slice(0, 10).join("\n")}`);
 	}
-	let publishError = null;
-	const published = [];
+	const staged = [];
 	for (const group of groups) {
-		try {
-			await publish(inputs.cwd, inputs.baseBranch, group);
-		} catch (error) {
-			publishError = error;
-		}
-		published.push(...await readPublishSummary(inputs.cwd));
-		if (publishError !== null) break;
+		await deps.stage(inputs.cwd, inputs.baseBranch, group);
+		staged.push(...await readStageSummary(inputs.cwd));
 	}
+	const published = [...new Map([...staged, ...releasedPublic].map((pkg) => [releaseKey(pkg.name, pkg.version), pkg])).values()];
+	await waitForApproval(inputs.cwd, published, deps.approvalWait);
 	setOutput("published", published.length > 0 ? "true" : "false");
 	setOutput("published-packages", JSON.stringify(published));
-	if (publishError !== null) throw publishError instanceof Error ? publishError : new Error(JSON.stringify(publishError));
 	const targets = buildReleaseTargets(published, released, singlePackage);
 	if (targets.length === 0) {
 		info("Nothing was published and the ledger shows no new releases.");

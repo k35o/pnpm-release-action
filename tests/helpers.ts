@@ -39,21 +39,30 @@ export const writeFixtureManifest = async (
   );
 };
 
+export type FakeRegistry = {
+  readonly url: string;
+  // npm で stage した版が承認され、packument に現れるのに当たる
+  readonly publish: (name: string, version: string) => void;
+};
+
 // pnpm は version / publish の前に、対象の版が公開済みかをレジストリへ問い合わせる
 // （未公開なら bump せず、その版のまま初回リリースにする）。npmjs.org に同名の
 // パッケージがあるかどうかで結果が変わらないよう、返事を決め打ちするレジストリを立てる
 export const startFakeRegistry = async (
   latestByName: Readonly<Record<string, string>>,
   restricted = false,
-): Promise<string> => {
+): Promise<FakeRegistry> => {
+  const versionsByName = new Map(
+    Object.entries(latestByName).map(([name, latest]) => [name, [latest]]),
+  );
   const server = createServer((request, response) => {
     const name = decodeURIComponent(
       // プロキシとして受けた問い合わせは絶対 URL で届く
       new URL(request.url ?? '/', 'http://registry').pathname.slice(1),
     );
-    const latest = latestByName[name];
+    const versions = versionsByName.get(name);
     const found =
-      latest !== undefined &&
+      versions !== undefined &&
       (!restricted || request.headers.authorization !== undefined);
     response.writeHead(found ? 200 : 404, {
       'content-type': 'application/json',
@@ -62,14 +71,17 @@ export const startFakeRegistry = async (
       found
         ? JSON.stringify({
             name,
-            'dist-tags': { latest },
-            versions: {
-              [latest]: {
-                name,
-                version: latest,
-                dist: { tarball: `http://registry/${name}-${latest}.tgz` },
-              },
-            },
+            'dist-tags': { latest: latestByName[name] ?? versions[0] },
+            versions: Object.fromEntries(
+              versions.map((version) => [
+                version,
+                {
+                  name,
+                  version,
+                  dist: { tarball: `http://registry/${name}-${version}.tgz` },
+                },
+              ]),
+            ),
           })
         : '{"error":"Not found"}',
     );
@@ -80,7 +92,22 @@ export const startFakeRegistry = async (
   // フィクスチャごとに閉じて回らなくても、テストワーカーの終了を妨げない
   server.unref();
   const { port } = server.address() as AddressInfo;
-  return `http://127.0.0.1:${String(port)}/`;
+  return {
+    url: `http://127.0.0.1:${String(port)}/`,
+    publish: (name, version) => {
+      versionsByName.set(name, [...(versionsByName.get(name) ?? []), version]);
+    },
+  };
+};
+
+const fixtureRegistries = new Map<string, FakeRegistry>();
+
+export const fakeRegistryOf = (dir: string): FakeRegistry => {
+  const registry = fixtureRegistries.get(dir);
+  if (registry === undefined) {
+    throw new Error(`no fake registry was started for ${dir}`);
+  }
+  return registry;
 };
 
 // git リポジトリのルート（subdir 指定時はサブディレクトリ）に単一パッケージの
@@ -116,8 +143,8 @@ export const initFixtureWorkspace = async (
       // NPM_TOKEN の認証行は registry.npmjs.org 宛てにしか書かれない。偽レジストリを
       // その名前のプロキシとして立て、本物と同じ宛先のままトークンを受け取る
       restricted
-        ? `registry: http://registry.npmjs.org/\nhttpProxy: ${registry}\n`
-        : `registry: ${registry}\n`
+        ? `registry: http://registry.npmjs.org/\nhttpProxy: ${registry.url}\n`
+        : `registry: ${registry.url}\n`
     }${
       options.storage === 'repository'
         ? 'versioning:\n  changelog:\n    storage: repository\n'
@@ -139,5 +166,6 @@ export const initFixtureWorkspace = async (
   await sh(root, 'git', ['config', 'commit.gpgsign', 'false']);
   await sh(root, 'git', ['add', '-A']);
   await sh(root, 'git', ['commit', '-q', '-m', 'init']);
+  fixtureRegistries.set(dir, registry);
   return dir;
 };
