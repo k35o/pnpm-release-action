@@ -27,3 +27,7 @@ pnpm-release-action@0.3.0:
     - npm-auth-before-plan
     - pnpm-12
     - publish-dist-tags
+pnpm-release-action@0.4.0:
+  dir: ""
+  intents:
+    - staged-publishing
